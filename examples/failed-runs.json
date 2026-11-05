@@ -1,0 +1,1 @@
+{"type":"bar","title":"Thursday failed most: 14 runs, twice the week's average","subtitle":"Failed Reactor runs per day, week 45","labels":["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],"series":[{"name":"Failed runs","values":[6,8,5,14,7,2,3]}],"highlight":"Thu","source":"Source: Reactor runs, 2–8 Nov 2026"}
