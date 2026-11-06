@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 
 from theme import ThemeName
@@ -22,13 +22,38 @@ class Size(str, Enum):
     WIDE = "wide"
     SQUARE = "square"
     TALL = "tall"
+    PHONE = "phone"
 
 
-# CSS pixels; the PNG is drawn at twice this.
-SIZES: dict[Size, tuple[int, int]] = {
-    Size.WIDE: (960, 540),
-    Size.SQUARE: (760, 760),
-    Size.TALL: (640, 800),
+@dataclass(frozen=True)
+class Layout:
+    """A size's canvas in CSS pixels, the scale its PNG is drawn at, and the type sizes and margin that read there."""
+
+    width: int
+    height: int
+    scale: int
+    pad: float
+    title: float
+    subtitle: float
+    label: float
+    source: float
+    total: float
+    legend: float
+    legend_row: float
+    names_above: bool
+
+
+WIDE = Layout(width=960, height=540, scale=2, pad=32, title=26, subtitle=16, label=13, source=12, total=28, legend=15,
+              legend_row=34, names_above=False)
+
+# `phone` is drawn for the width of a reply in the Selan app's chat (343 to 398 points), so it reads at about 1:1;
+# its PNG is three times the canvas, as a phone's screen is.
+SIZES: dict[Size, Layout] = {
+    Size.WIDE: WIDE,
+    Size.SQUARE: replace(WIDE, width=760, height=760),
+    Size.TALL: replace(WIDE, width=640, height=800),
+    Size.PHONE: Layout(width=360, height=450, scale=3, pad=20, title=19, subtitle=13, label=12, source=11, total=22,
+                       legend=13, legend_row=24, names_above=True),
 }
 
 MAX_SERIES = 6

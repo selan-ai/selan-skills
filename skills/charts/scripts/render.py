@@ -6,14 +6,8 @@ import math
 from dataclasses import dataclass
 from xml.sax.saxutils import escape
 
-from spec import SIZES, ChartType, Spec, nice_ticks, value_range
+from spec import SIZES, ChartType, Layout, Spec, nice_ticks, value_range
 from theme import SANS, THEMES, Theme
-
-PAD = 32
-TITLE = 26
-SUBTITLE = 16
-LABEL = 13
-SOURCE = 12
 
 
 def width_of(text: str, size: float, bold: bool = False) -> float:
@@ -29,6 +23,7 @@ def fit(text: str, size: float, room: float) -> str:
 
 
 def wrap(text: str, size: float, room: float, lines: int, bold: bool = False) -> list[str]:
+    """`text` in at most `lines` lines; what does not fit ends the last one at a whole word, with an ellipsis."""
     out: list[str] = []
     words = text.split()
     while words and len(out) < lines:
@@ -37,8 +32,20 @@ def wrap(text: str, size: float, room: float, lines: int, bold: bool = False) ->
             line = f"{line} {words.pop(0)}"
         out.append(line)
     if words:
-        out[-1] = fit(f"{out[-1]} {' '.join(words)}", size, room - size)
+        kept = out[-1].split()
+        while len(kept) > 1 and width_of(" ".join(kept) + "…", size, bold) > room:
+            kept.pop()
+        line = " ".join(kept) + "…"
+        out[-1] = line if width_of(line, size, bold) <= room else fit(line, size, room)
     return out
+
+
+def title_lines(text: str, layout: Layout, room: float) -> tuple[float, list[str]]:
+    """The title in two lines at most: at its size, or a little smaller when that keeps every word."""
+    size = layout.title
+    while size > round(layout.title * 0.85) and len(wrap(text, size, room, 3, bold=True)) > 2:
+        size -= 1
+    return size, wrap(text, size, room, 2, bold=True)
 
 
 def attr(value: float) -> str:
@@ -49,16 +56,24 @@ def attr(value: float) -> str:
 class Canvas:
     spec: Spec
     theme: Theme
-    width: int
-    height: int
+    layout: Layout
 
     def __post_init__(self) -> None:
         self.parts: list[str] = []
+        self.width = self.layout.width
+        self.height = self.layout.height
 
     def text(self, x: float, y: float, words: str, size: float, fill: str, weight: int = 400, anchor: str = "start") -> None:
         self.parts.append(
             f'<text x="{attr(x)}" y="{attr(y)}" font-size="{attr(size)}" font-weight="{weight}" fill="{fill}" '
             f'text-anchor="{anchor}">{escape(words)}</text>'
+        )
+
+    def text_over_lines(self, x: float, y: float, words: str, size: float, fill: str, weight: int) -> None:
+        """Text with a rim of the background around each letter, so gridlines under it stop short of it."""
+        self.parts.append(
+            f'<text x="{attr(x)}" y="{attr(y)}" font-size="{attr(size)}" font-weight="{weight}" fill="{fill}" '
+            f'stroke="{self.theme.background}" stroke-width="4" stroke-linejoin="round" paint-order="stroke">{escape(words)}</text>'
         )
 
     def line(self, x1: float, y1: float, x2: float, y2: float, stroke: str, width: float = 1, dash: str = "") -> None:
@@ -104,41 +119,44 @@ def colour(spec: Spec, theme: Theme, series: int, label: str) -> str:
 
 def header(canvas: Canvas) -> float:
     """Title, subtitle and, for several series without direct labels, the legend; answers where the plot starts."""
-    spec, theme = canvas.spec, canvas.theme
-    room = canvas.width - 2 * PAD
-    y = PAD + TITLE * 0.8
-    for line in wrap(spec.title, TITLE, room, 2, bold=True):
-        canvas.text(PAD, y, line, TITLE, theme.text, 600)
-        y += TITLE * 1.25
+    spec, theme, layout = canvas.spec, canvas.theme, canvas.layout
+    pad, label = layout.pad, layout.label
+    room = canvas.width - 2 * pad
+    size, lines = title_lines(spec.title, layout, room)
+    y = pad + size * 0.8
+    for line in lines:
+        canvas.text(pad, y, line, size, theme.text, 600)
+        y += size * 1.25
     if spec.subtitle:
         y += 2
-        for line in wrap(spec.subtitle, SUBTITLE, room, 2):
-            canvas.text(PAD, y, line, SUBTITLE, theme.muted)
-            y += SUBTITLE * 1.4
-    if len(spec.series) > 1 and spec.type in (ChartType.BAR, ChartType.HBAR, ChartType.STACKED):
+        for line in wrap(spec.subtitle, layout.subtitle, room, 2):
+            canvas.text(pad, y, line, layout.subtitle, theme.muted)
+            y += layout.subtitle * 1.4
+    if legend_needed(canvas):
         y += 10
-        x = PAD
+        x = pad
         for index, one in enumerate(spec.series):
-            step = 12 + 6 + width_of(one.name, LABEL) + 18
-            if x + step > canvas.width - PAD and x > PAD:
-                x, y = PAD, y + LABEL * 1.7
+            step = 12 + 6 + width_of(one.name, label) + 18
+            if x + step > canvas.width - pad and x > pad:
+                x, y = pad, y + label * 1.7
             canvas.parts.append(f'<rect x="{attr(x)}" y="{attr(y - 10)}" width="12" height="12" rx="3" fill="{theme.series[index % len(theme.series)]}"/>')
-            canvas.text(x + 18, y, one.name, LABEL, theme.text_2)
+            canvas.text(x + 18, y, one.name, label, theme.text_2)
             x += step
     return y + 24
 
 
 def footer(canvas: Canvas) -> float:
     """The source, bottom left; answers where the plot must end."""
+    pad, size = canvas.layout.pad, canvas.layout.source
     if not canvas.spec.source:
-        return canvas.height - PAD
-    canvas.text(PAD, canvas.height - PAD + SOURCE * 0.3, fit(canvas.spec.source, SOURCE, canvas.width - 2 * PAD), SOURCE, canvas.theme.muted)
-    return canvas.height - PAD - SOURCE - 14
+        return canvas.height - pad
+    canvas.text(pad, canvas.height - pad + size * 0.3, wrap(canvas.spec.source, size, canvas.width - 2 * pad, 1)[0], size, canvas.theme.muted)
+    return canvas.height - pad - size - 14
 
 
 def value_axis(canvas: Canvas, top: float, bottom: float, left: float, right: float, vertical: bool) -> tuple[list[float], float, float]:
     """Gridlines and tick labels; answers the ticks and the axis' low and high."""
-    spec, theme = canvas.spec, canvas.theme
+    spec, theme, label = canvas.spec, canvas.theme, canvas.layout.label
     low, high = value_range(spec)
     ticks = nice_ticks(low, high)
     lo, hi = ticks[0], ticks[-1]
@@ -148,35 +166,36 @@ def value_axis(canvas: Canvas, top: float, bottom: float, left: float, right: fl
         if vertical:
             y = bottom - (tick - lo) / (hi - lo) * (bottom - top)
             canvas.line(left, y, right, y, stroke)
-            canvas.text(left - 10, y + LABEL * 0.35, words, LABEL, theme.muted, anchor="end")
+            canvas.text(left - 10, y + label * 0.35, words, label, theme.muted, anchor="end")
         else:
             x = left + (tick - lo) / (hi - lo) * (right - left)
             canvas.line(x, top, x, bottom, stroke)
-            canvas.text(x, bottom + LABEL + 8, words, LABEL, theme.muted, anchor="middle")
+            canvas.text(x, bottom + label + 8, words, label, theme.muted, anchor="middle")
     return ticks, lo, hi
 
 
-def tick_room(spec: Spec) -> float:
+def tick_room(canvas: Canvas) -> float:
+    spec = canvas.spec
     ticks = nice_ticks(*value_range(spec))
-    return max(width_of(spec.tick(tick, ticks), LABEL) for tick in ticks) + 14
+    return max(width_of(spec.tick(tick, ticks), canvas.layout.label) for tick in ticks) + 14
 
 
 def category_labels(canvas: Canvas, centres: list[float], y: float, room: float) -> None:
-    spec = canvas.spec
-    widest = max(width_of(label, LABEL) for label in spec.labels)
+    spec, size = canvas.spec, canvas.layout.label
+    widest = max(width_of(label, size) for label in spec.labels)
     every = max(1, math.ceil((widest + 12) / max(room, 1)))
     for index, (label, x) in enumerate(zip(spec.labels, centres)):
         if index % every == 0:
             fill = canvas.theme.text if label == spec.highlight else canvas.theme.muted
-            canvas.text(x, y, fit(label, LABEL, room * every - 6), LABEL, fill, 600 if label == spec.highlight else 400, "middle")
+            canvas.text(x, y, fit(label, size, room * every - 6), size, fill, 600 if label == spec.highlight else 400, "middle")
 
 
 def draw_columns(canvas: Canvas, top: float, bottom: float) -> None:
-    """Bar (grouped) and stacked: columns up from zero, labels under, values on single-series tops."""
-    spec, theme = canvas.spec, canvas.theme
-    left = PAD + tick_room(spec)
-    right = canvas.width - PAD
-    bottom -= LABEL + 12
+    """Bar (grouped) and stacked: columns up from zero, labels under, values on single-series tops when all of them fit."""
+    spec, theme, label = canvas.spec, canvas.theme, canvas.layout.label
+    left = canvas.layout.pad + tick_room(canvas)
+    right = canvas.width - canvas.layout.pad
+    bottom -= label + 12
     _, lo, hi = value_axis(canvas, top, bottom, left, right, vertical=True)
 
     def y_of(value: float) -> float:
@@ -187,12 +206,14 @@ def draw_columns(canvas: Canvas, top: float, bottom: float) -> None:
     inner = slot * 0.7
     stacked = spec.type == ChartType.STACKED
     width = inner if stacked else (inner - 2 * (len(spec.series) - 1)) / len(spec.series)
-    for index, label in enumerate(spec.labels):
+    totals = [sum(one.values[index] for one in spec.series) if stacked else spec.series[0].values[index] for index in range(len(spec.labels))]
+    labelled = (stacked or len(spec.series) == 1) and all(width_of(spec.format(total), label) <= slot - 4 for total in totals)
+    for index, name in enumerate(spec.labels):
         x0 = left + slot * index + (slot - inner) / 2
         base = 0.0
         for place, one in enumerate(spec.series):
             value = one.values[index]
-            fill = colour(spec, theme, place, label)
+            fill = colour(spec, theme, place, name)
             if stacked:
                 y1, y2 = y_of(base + value), y_of(base)
                 last = place == len(spec.series) - 1
@@ -205,59 +226,139 @@ def draw_columns(canvas: Canvas, top: float, bottom: float) -> None:
                 x = x0 + place * (width + 2)
                 end = y_of(value)
                 canvas.bar(x, min(end, zero), width, abs(zero - end), fill, "up" if value >= 0 else "down")
-        total = base if stacked else spec.series[0].values[index]
-        words = spec.format(total)
-        if (stacked or len(spec.series) == 1) and width_of(words, LABEL) <= slot - 4:
-            y = y_of(total) - 8 if total >= 0 else y_of(total) + LABEL + 6
-            canvas.text(x0 + inner / 2, y, words, LABEL, theme.text_2, 600, "middle")
+        if labelled:
+            total = totals[index]
+            y = y_of(total) - 8 if total >= 0 else y_of(total) + label + 6
+            canvas.text(x0 + inner / 2, y, spec.format(total), label, theme.text_2, 600, "middle")
     centres = [left + slot * (index + 0.5) for index in range(len(spec.labels))]
-    category_labels(canvas, centres, bottom + LABEL + 10, slot)
+    category_labels(canvas, centres, bottom + label + 10, slot)
+
+
+@dataclass(frozen=True)
+class Scale:
+    low: float
+    high: float
+    left: float
+    right: float
+
+    def x(self, value: float) -> float:
+        return self.left + (value - self.low) / (self.high - self.low) * (self.right - self.left)
+
+
+def row_bars(canvas: Canvas, scale: Scale, index: int, y0: float, thick: float) -> None:
+    """One category's bars from zero, each single-series one with its value at its end."""
+    spec, theme, label = canvas.spec, canvas.theme, canvas.layout.label
+    name = spec.labels[index]
+    zero = scale.x(0)
+    for place, one in enumerate(spec.series):
+        value = one.values[index]
+        y = y0 + place * (thick + 2)
+        end = scale.x(value)
+        fill = colour(spec, theme, place, name)
+        if value >= 0:
+            canvas.bar(zero, y, end - zero, thick, fill, "right")
+        else:
+            canvas.parts.append(f'<rect x="{attr(end)}" y="{attr(y)}" width="{attr(zero - end)}" height="{attr(thick)}" fill="{fill}"/>')
+        if len(spec.series) == 1:
+            anchor, x = ("start", end + 8) if value >= 0 else ("end", end - 8)
+            canvas.text(x, y + thick / 2 + label * 0.35, spec.format(value), label, theme.text_2, 600, anchor)
+
+
+def names_above(canvas: Canvas, top: float, bottom: float) -> bool:
+    """On a narrow canvas, names wider than three tenths of it go above their bars, while each row has room for a line."""
+    spec, label = canvas.spec, canvas.layout.label
+    widest = max(width_of(name, label) for name in spec.labels)
+    row = (bottom - top) / len(spec.labels)
+    return canvas.layout.names_above and widest + 14 > canvas.width * 0.3 and row >= label * (2 + len(spec.series) / 2)
+
+
+def value_room(canvas: Canvas, values: list[float]) -> float:
+    """What the widest of these values needs beside its bar's end; values show only on single-series bars."""
+    spec = canvas.spec
+    if len(spec.series) > 1 or not values:
+        return 0.0
+    return max(width_of(spec.format(value), canvas.layout.label, bold=True) for value in values) + 10
 
 
 def draw_rows(canvas: Canvas, top: float, bottom: float) -> None:
     """Horizontal bars: a category per row, its name at the left, its value at the bar's end."""
-    spec, theme = canvas.spec, canvas.theme
-    names = min(max(width_of(label, LABEL) for label in spec.labels) + 14, canvas.width * 0.38)
-    left = PAD + names
-    single = len(spec.series) == 1
-    widest_value = max(width_of(spec.format(value), LABEL, bold=True) for one in spec.series for value in one.values)
-    right = canvas.width - PAD - (widest_value + 10 if single else 0)
-    bottom -= LABEL + 14
+    if names_above(canvas, top, bottom):
+        draw_rows_named_above(canvas, top, bottom)
+        return
+    spec, theme, layout = canvas.spec, canvas.theme, canvas.layout
+    label = layout.label
+    names = min(max(width_of(name, label) for name in spec.labels) + 14, canvas.width * 0.38)
+    left = layout.pad + names
+    right = canvas.width - layout.pad - value_room(canvas, list(spec.series[0].values))
+    bottom -= label + 14
     _, lo, hi = value_axis(canvas, top, bottom, left, right, vertical=False)
-
-    def x_of(value: float) -> float:
-        return left + (value - lo) / (hi - lo) * (right - left)
-
-    zero = x_of(0)
+    scale = Scale(lo, hi, left, right)
     row = (bottom - top) / len(spec.labels)
     inner = row * 0.68
     thick = (inner - 2 * (len(spec.series) - 1)) / len(spec.series)
-    for index, label in enumerate(spec.labels):
-        y0 = top + row * index + (row - inner) / 2
-        strong = label == spec.highlight
-        canvas.text(left - 12, top + row * (index + 0.5) + LABEL * 0.35, fit(label, LABEL, names - 14), LABEL, theme.text if strong else theme.text_2, 600 if strong else 400, "end")
-        for place, one in enumerate(spec.series):
-            value = one.values[index]
-            y = y0 + place * (thick + 2)
-            end = x_of(value)
-            fill = colour(spec, theme, place, label)
-            if value >= 0:
-                canvas.bar(zero, y, end - zero, thick, fill, "right")
-            else:
-                canvas.parts.append(f'<rect x="{attr(end)}" y="{attr(y)}" width="{attr(zero - end)}" height="{attr(thick)}" fill="{fill}"/>')
-            if single:
-                anchor, x = ("start", end + 8) if value >= 0 else ("end", end - 8)
-                canvas.text(x, y + thick / 2 + LABEL * 0.35, spec.format(value), LABEL, theme.text_2, 600, anchor)
+    for index, name in enumerate(spec.labels):
+        strong = name == spec.highlight
+        canvas.text(left - 12, top + row * (index + 0.5) + label * 0.35, fit(name, label, names - 14), label, theme.text if strong else theme.text_2, 600 if strong else 400, "end")
+        row_bars(canvas, scale, index, top + row * index + (row - inner) / 2, thick)
+
+
+def draw_rows_named_above(canvas: Canvas, top: float, bottom: float) -> None:
+    """Each name on its own line over its bar. One series carries its values on the bars and needs no axis."""
+    spec, theme, layout = canvas.spec, canvas.theme, canvas.layout
+    label = layout.label
+    values = spec.series[0].values
+    left = layout.pad + value_room(canvas, [value for value in values if value < 0])
+    right = canvas.width - layout.pad - value_room(canvas, [value for value in values if value >= 0])
+    if len(spec.series) == 1:
+        low, high = value_range(spec)
+        scale = Scale(low, max(high, low + 1), left, right)
+        if low < 0:
+            canvas.line(scale.x(0), top, scale.x(0), bottom, theme.baseline)
+    else:
+        bottom -= label + 14
+        _, lo, hi = value_axis(canvas, top, bottom, left, right, vertical=False)
+        scale = Scale(lo, hi, left, right)
+    row = (bottom - top) / len(spec.labels)
+    named = label + 5
+    count = len(spec.series)
+    inner = min((row - named) * 0.62, count * label * 1.6 + 2 * (count - 1))
+    thick = (inner - 2 * (count - 1)) / count
+    for index, name in enumerate(spec.labels):
+        y0 = top + row * index + named
+        strong = name == spec.highlight
+        words = fit(name, label, canvas.width - 2 * layout.pad)
+        canvas.text_over_lines(layout.pad, y0 - 5, words, label, theme.text if strong else theme.text_2, 600 if strong else 400)
+        row_bars(canvas, scale, index, y0, thick)
+
+
+def end_names_fit(canvas: Canvas) -> bool:
+    """A line's series are named at their last points unless the names would take three tenths of the width."""
+    widest = max(width_of(one.name, canvas.layout.label, bold=True) for one in canvas.spec.series)
+    return widest + 12 <= canvas.width * 0.3
+
+
+def legend_needed(canvas: Canvas) -> bool:
+    """Several series get a legend where their names cannot sit on the data."""
+    spec = canvas.spec
+    if len(spec.series) < 2:
+        return False
+    if spec.type == ChartType.LINE:
+        return not end_names_fit(canvas)
+    return spec.type in (ChartType.BAR, ChartType.HBAR, ChartType.STACKED)
 
 
 def draw_lines(canvas: Canvas, top: float, bottom: float) -> None:
     """Lines over even steps; each series named at its last point, or a single one's last value shown there."""
-    spec, theme = canvas.spec, canvas.theme
+    spec, theme, layout = canvas.spec, canvas.theme, canvas.layout
+    label = layout.label
     single = len(spec.series) == 1
-    ends = [spec.format(one.values[-1]) if single else one.name for one in spec.series]
-    left = PAD + tick_room(spec)
-    right = canvas.width - PAD - max(width_of(words, LABEL, bold=True) for words in ends) - 12
-    bottom -= LABEL + 12
+    if single:
+        ends = [spec.format(spec.series[0].values[-1])]
+    else:
+        ends = [one.name for one in spec.series] if end_names_fit(canvas) else []
+    left = layout.pad + tick_room(canvas)
+    right = canvas.width - layout.pad - (max(width_of(words, label, bold=True) for words in ends) + 12 if ends else 6)
+    bottom -= label + 12
     _, lo, hi = value_axis(canvas, top, bottom, left, right, vertical=True)
     count = len(spec.labels)
     step = (right - left) / max(count - 1, 1)
@@ -281,11 +382,11 @@ def draw_lines(canvas: Canvas, top: float, bottom: float) -> None:
         placed.append((y_of(one.values[-1]), place))
     placed.sort()
     last = -math.inf
-    for y, place in placed:
-        y = max(y, last + LABEL + 4)
+    for y, place in placed if ends else []:
+        y = max(y, last + label + 4)
         last = y
-        canvas.text(xs[-1] + 10, y + LABEL * 0.35, ends[place], LABEL, theme.series[place % len(theme.series)], 600)
-    category_labels(canvas, xs, bottom + LABEL + 10, step if count > 1 else right - left)
+        canvas.text(xs[-1] + 10, y + label * 0.35, ends[place], label, theme.series[place % len(theme.series)], 600)
+    category_labels(canvas, xs, bottom + label + 10, step if count > 1 else right - left)
 
 
 def slice_path(cx: float, cy: float, outer: float, inner: float, start: float, end: float) -> str:
@@ -301,24 +402,25 @@ def slice_path(cx: float, cy: float, outer: float, inner: float, start: float, e
 
 def draw_donut(canvas: Canvas, top: float, bottom: float) -> None:
     """One series as slices from twelve o'clock, the total in the middle, each slice's name, value and share beside."""
-    spec, theme = canvas.spec, canvas.theme
+    spec, theme, layout = canvas.spec, canvas.theme, canvas.layout
+    pad, label = layout.pad, layout.label
     values = spec.series[0].values
     total = sum(values)
     rows = len(spec.labels)
     beside = canvas.width >= 900
     if beside:
-        radius = min((bottom - top) / 2, (canvas.width - 2 * PAD) * 0.25)
-        cx, cy = PAD + radius, (top + bottom) / 2
+        radius = min((bottom - top) / 2, (canvas.width - 2 * pad) * 0.25)
+        cx, cy = pad + radius, (top + bottom) / 2
     else:
-        legend = rows * 34
-        radius = min((bottom - top - legend - 28) / 2, (canvas.width - 2 * PAD) / 2)
+        legend = rows * layout.legend_row
+        radius = min((bottom - top - legend - 28) / 2, (canvas.width - 2 * pad) / 2)
         cx, cy = canvas.width / 2, top + radius
     start = 0.0
-    for index, (label, value) in enumerate(zip(spec.labels, values)):
+    for index, (name, value) in enumerate(zip(spec.labels, values)):
         share = value / total
         if share <= 0:
             continue
-        fill = colour(spec, theme, index, label)
+        fill = colour(spec, theme, index, name)
         end = start + share * 2 * math.pi
         if share >= 0.9999:
             half = start + math.pi
@@ -327,24 +429,28 @@ def draw_donut(canvas: Canvas, top: float, bottom: float) -> None:
             path = slice_path(cx, cy, radius, radius * 0.62, start, end)
         canvas.parts.append(f'<path d="{path}" fill="{fill}" stroke="{theme.background}" stroke-width="2"/>')
         start = end
-    canvas.text(cx, cy + 6, spec.format(total, compact=True), 28, theme.text, 600, "middle")
-    if spec.series[0].name:
-        canvas.text(cx, cy + 28, fit(spec.series[0].name, LABEL, radius * 1.1), LABEL, theme.muted, anchor="middle")
+    hole = radius * 0.62
+    words = spec.format(total, compact=True)
+    size = min(layout.total, hole * 1.8 / width_of(words, 1, bold=True))
+    canvas.text(cx, cy + size * 3 / 14, words, size, theme.text, 600, "middle")
+    name = spec.series[0].name
+    if name and width_of(name, label) <= min(radius * 1.1, 2 * math.sqrt(max(hole ** 2 - (size + 2) ** 2, 0)) - 8):
+        canvas.text(cx, cy + size, name, label, theme.muted, anchor="middle")
     if beside:
         x = cx + radius + 48
         gap = min(40.0, (bottom - top) / rows)
         y = cy - gap * (rows - 1) / 2
     else:
-        x = PAD
-        gap = 34.0
+        x = pad
+        gap = layout.legend_row
         y = cy + radius + 28 + 14
-    room = canvas.width - PAD - x - 22
-    for index, (label, value) in enumerate(zip(spec.labels, values)):
-        fill = colour(spec, theme, index, label)
+    room = canvas.width - pad - x - 22
+    for index, (name, value) in enumerate(zip(spec.labels, values)):
+        fill = colour(spec, theme, index, name)
         canvas.parts.append(f'<rect x="{attr(x)}" y="{attr(y - 11)}" width="14" height="14" rx="3" fill="{fill}"/>')
         figures = f"{spec.format(value)}  ·  {value / total * 100:.0f}%"
-        canvas.text(x + 22, y, fit(label, 15, room - width_of(figures, LABEL) - 12), 15, theme.text_2, 600 if label == spec.highlight else 400)
-        canvas.text(canvas.width - PAD, y, figures, LABEL, theme.muted, anchor="end")
+        canvas.text(x + 22, y, fit(name, layout.legend, room - width_of(figures, label) - 12), layout.legend, theme.text_2, 600 if name == spec.highlight else 400)
+        canvas.text(canvas.width - pad, y, figures, label, theme.muted, anchor="end")
         y += gap
 
 
@@ -358,8 +464,7 @@ DRAW = {
 
 
 def render(spec: Spec) -> str:
-    width, height = SIZES[spec.size]
-    canvas = Canvas(spec, THEMES[spec.theme], width, height)
+    canvas = Canvas(spec, THEMES[spec.theme], SIZES[spec.size])
     top = header(canvas)
     bottom = footer(canvas)
     DRAW[spec.type](canvas, top, bottom)

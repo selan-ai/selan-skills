@@ -11,8 +11,8 @@ SCRIPTS = Path(__file__).resolve().parent.parent / "skills" / "charts" / "script
 sys.path.insert(0, str(SCRIPTS))
 
 import raster  # noqa: E402
-from render import render  # noqa: E402
-from spec import ChartType, SpecError, nice_ticks, parse  # noqa: E402
+from render import render, width_of  # noqa: E402
+from spec import SIZES, ChartType, Size, SpecError, nice_ticks, parse  # noqa: E402
 from theme import THEMES, ThemeName  # noqa: E402
 
 SVG = "{http://www.w3.org/2000/svg}"
@@ -29,16 +29,21 @@ def texts(svg: str) -> list[str]:
     return [node.text or "" for node in ElementTree.fromstring(svg).iter(f"{SVG}text")]
 
 
+def text_nodes(svg: str) -> list[ElementTree.Element]:
+    return list(ElementTree.fromstring(svg).iter(f"{SVG}text"))
+
+
 class SpecTests(unittest.TestCase):
-    def test_each_type_draws_valid_svg_with_its_title(self) -> None:
+    def test_each_type_draws_valid_svg_with_its_title_at_each_size(self) -> None:
         for chart in ChartType:
             series = [{"name": "Runs", "values": [6, 8, 14]}]
             if chart not in (ChartType.DONUT,):
                 series.append({"name": "Retried", "values": [1, 2, 3]})
-            svg = render(parse(spec_of(type=chart.value, series=series)))
-            root = ElementTree.fromstring(svg)
-            self.assertEqual(root.find(f"{SVG}title").text, "Thursday failed most", chart)
-            self.assertIn("Thursday failed most", texts(svg), chart)
+            for size in Size:
+                svg = render(parse(spec_of(type=chart.value, series=series, size=size.value)))
+                root = ElementTree.fromstring(svg)
+                self.assertEqual(root.find(f"{SVG}title").text, "Thursday failed most", (chart, size))
+                self.assertIn("Thursday failed most", texts(svg), (chart, size))
 
     def test_refuses_what_it_cannot_draw_and_says_why(self) -> None:
         cases = {
@@ -131,7 +136,82 @@ class ScriptTests(unittest.TestCase):
             with mock.patch.object(raster.shutil, "which", return_value=None), \
                     mock.patch.object(raster, "_chrome", return_value=None), \
                     mock.patch.object(raster.platform, "system", return_value="Linux"):
-                self.assertIsNone(raster.to_png(svg, Path(out) / "a.png", 960, 540))
+                self.assertIsNone(raster.to_png(svg, Path(out) / "a.png", SIZES[Size.WIDE]))
+
+    def test_the_phone_png_is_drawn_at_three_times_and_the_others_at_two(self) -> None:
+        with tempfile.TemporaryDirectory() as out:
+            svg = Path(out) / "a.svg"
+            svg.write_text(render(parse(spec_of(size="phone"))))
+            for size, scale in ((Size.PHONE, "3"), (Size.WIDE, "2")):
+                with mock.patch.object(raster.shutil, "which", return_value="/usr/bin/rsvg-convert"), \
+                        mock.patch.object(raster, "_run", return_value=True) as run, \
+                        mock.patch.object(raster, "_found", return_value=True):
+                    self.assertEqual(raster.to_png(svg, Path(out) / "a.png", SIZES[size]), "rsvg-convert")
+                    self.assertEqual(run.call_args.args[0][1:3], ["-z", scale], size.value)
+
+
+class PhoneTests(unittest.TestCase):
+    def test_the_page_sizes_keep_their_canvas_and_type(self) -> None:
+        self.assertEqual([(SIZES[size].width, SIZES[size].height, SIZES[size].scale, SIZES[size].title, SIZES[size].label)
+                          for size in (Size.WIDE, Size.SQUARE, Size.TALL)],
+                         [(960, 540, 2, 26, 13), (760, 760, 2, 26, 13), (640, 800, 2, 26, 13)])
+
+    def test_phone_is_a_360_by_450_canvas_with_type_set_for_a_phone(self) -> None:
+        root = ElementTree.fromstring(render(parse(spec_of(size="phone"))))
+        self.assertEqual((root.get("width"), root.get("height")), ("360", "450"))
+        sizes = {node.text: node.get("font-size") for node in root.iter(f"{SVG}text")}
+        self.assertEqual(sizes["Thursday failed most"], "19")
+        self.assertEqual(sizes["Mon"], "12")
+
+    def test_a_long_title_takes_two_lines_at_most_and_keeps_whole_words(self) -> None:
+        title = "Weekend runs dropped sharply because the nightly maintenance agents were paused for the whole migration week"
+        for size in Size:
+            svg = render(parse(spec_of(title=title, size=size.value)))
+            layout = SIZES[size]
+            lines = [node for node in text_nodes(svg) if node.get("font-weight") == "600" and float(node.get("font-size")) > layout.subtitle]
+            self.assertLessEqual(len(lines), 2, size.value)
+            for node in lines:
+                words = node.text.rstrip("…").split()
+                self.assertTrue(all(word in title.split() for word in words), f"{size.value}: {node.text}")
+                self.assertLessEqual(width_of(node.text, float(node.get("font-size")), bold=True), layout.width - 2 * layout.pad)
+
+    def test_a_short_title_keeps_its_size(self) -> None:
+        sizes = [node.get("font-size") for node in text_nodes(render(parse(spec_of(size="phone"))))]
+        self.assertEqual(sizes[0], "19")
+
+    def test_long_names_go_above_their_bars_and_one_series_needs_no_axis(self) -> None:
+        names = ["Security Agent", "Trigger Watch Agent", "Website Docs Agent", "UX Agent"]
+        svg = render(parse(spec_of(type="hbar", size="phone", labels=names, series=[{"name": "Spend", "values": [48, 31, 22, 18]}])))
+        drawn = {node.text: node for node in text_nodes(svg)}
+        for name in names:
+            self.assertEqual(drawn[name].get("x"), "20", name)
+        self.assertNotIn("0", drawn)
+        short = render(parse(spec_of(type="hbar", size="phone")))
+        self.assertEqual({node.text: node for node in text_nodes(short)}["Mon"].get("text-anchor"), "end")
+
+    def test_too_many_rows_for_a_line_each_keep_names_beside(self) -> None:
+        names = [f"Agent number {index}" for index in range(12)]
+        svg = render(parse(spec_of(type="hbar", size="phone", labels=names, series=[{"name": "Runs", "values": list(range(12, 0, -1))}])))
+        anchors = {node.get("text-anchor") for node in text_nodes(svg) if (node.text or "").startswith("Agent")}
+        self.assertEqual(anchors, {"end"})
+
+
+class LabelTests(unittest.TestCase):
+    def test_column_values_show_on_every_bar_or_on_none(self) -> None:
+        labels = [f"W{week}" for week in range(10)]
+        values = [18400, 15200, 12900, 6400, 5100, 3900, 2800, 1900, 900, 400]
+        svg = render(parse(spec_of(size="phone", labels=labels, series=[{"name": "Runs", "values": values}])))
+        self.assertFalse({"900", "400"} & set(texts(svg)))
+
+    def test_a_donut_names_its_total_only_when_the_name_fits_whole(self) -> None:
+        raw = spec_of(type="donut", size="phone", labels=list("ABCDEF"), series=[{"name": "Support tickets opened", "values": [5, 4, 3, 2, 1, 1]}])
+        self.assertFalse([words for words in texts(render(parse(raw))) if words.startswith("Support")])
+
+    def test_line_names_too_long_for_the_end_become_a_legend(self) -> None:
+        series = [{"name": "Growth and marketing", "values": [1, 2, 3]}, {"name": "Customer support", "values": [2, 2, 1]}]
+        svg = render(parse(spec_of(type="line", size="phone", series=series)))
+        self.assertEqual(len(list(ElementTree.fromstring(svg).iter(f"{SVG}rect"))), 3)
+        self.assertIn("Growth and marketing", texts(svg))
 
 
 if __name__ == "__main__":

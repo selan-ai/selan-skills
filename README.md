@@ -15,9 +15,13 @@ with the numbers beside it as a CSV. In a Selan Reactor chat, the expert attache
 
 ![Thursday failed most: 14 runs, twice the week's average](examples/failed-runs.png)
 
-Bar, horizontal bar, line, stacked bar and donut, dark or light, wide, square or tall for a phone. The title says the
-takeaway, bars start at zero, labels sit on the data rather than in a legend, and one category can be kept in colour
-while the rest go grey. The spec for the chart above is [examples/failed-runs.json](examples/failed-runs.json).
+Bar, horizontal bar, line, stacked bar and donut, dark or light, wide, square or tall, or `phone` for a chart in a
+chat reply on the Selan app. The title says the takeaway, bars start at zero, labels sit on the data rather than in a
+legend, and one category can be kept in colour while the rest go grey. The spec for the chart above is
+[examples/failed-runs.json](examples/failed-runs.json); the same chart at `phone`, as an agent attaches it to a chat
+reply, is [examples/failed-runs-phone.json](examples/failed-runs-phone.json):
+
+<img src="examples/failed-runs-phone.png" alt="The same chart drawn for a phone" width="360">
 
 It needs only Python 3.9 or later. The PNG is drawn by the first of rsvg-convert, resvg, Chrome or Chromium (including
 Playwright's) the machine has, or Quick Look on a Mac; with none of them, you get the SVG and the CSV.
