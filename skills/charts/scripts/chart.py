@@ -45,8 +45,7 @@ def main(argv: list[str]) -> int:
     svg, png, table = (out / f"{spec.name}.{kind}" for kind in ("svg", "png", "csv"))
     svg.write_text(render(spec), encoding="utf-8")
     write_csv(spec, table)
-    width, height = SIZES[spec.size]
-    drawer = to_png(svg, png, width, height)
+    drawer = to_png(svg, png, SIZES[spec.size])
     result = {"svg": str(svg), "png": str(png) if drawer else None, "csv": str(table), "drawer": drawer}
     if not drawer:
         result["note"] = "no SVG drawer here (rsvg-convert, resvg, Chrome or Chromium): hand over the SVG, or install librsvg"

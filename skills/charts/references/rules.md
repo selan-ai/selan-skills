@@ -16,6 +16,13 @@ What the script does by itself, and what is left to the spec you write.
   ([WCAG 1.4.11](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html)).
 - **Never colour alone:** every series also has its name on the chart.
 - **No rotated labels:** a long category name is shortened with an ellipsis; use `hbar` instead.
+- **Values on all the columns or on none:** a few labelled bars among unlabelled ones read as a mistake.
+- **`phone` is drawn for the phone.** A chat reply's picture spans the reply, 343 to 398 points, so the 360×450
+  canvas reads at about its own size: title 19, subtitle 13, labels and values 12, source 11, a 20 margin, and a
+  PNG at 3×. `hbar` names that would be cut at the left go on their own line above their bars, and one series then
+  needs no axis; line names too long for the line ends become a legend.
+- **A title keeps whole words:** two lines at most; one that does not fit is drawn up to 15% smaller, then ends at
+  a whole word with an ellipsis.
 - **The SVG carries the title and subtitle** as `<title>` and `<desc>`, for screen readers.
 
 ## Left to you

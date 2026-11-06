@@ -14,6 +14,9 @@ Write the one sentence the chart should leave in the reader's head: "Thursday fa
 week's average", not "Failed runs per day". That sentence is the `title`. What is measured, the period and the
 unit go in the `subtitle`. If the data does not show a takeaway, say so to the person rather than drawing one.
 
+A `phone` chart's title gets two lines of about 28 characters, so keep it to 50 or fewer ("Thursday failed most:
+14 runs"). A longer one is drawn smaller, then cut at a whole word, and its end is lost.
+
 ## 2. The type
 
 | The question | `type` |
@@ -23,6 +26,10 @@ unit go in the `subtitle`. If the data does not show a takeaway, say so to the p
 | A ranking, long names, or more than 7 categories | `hbar`, sorted largest first |
 | What is each total made of, across categories? | `stacked` |
 | What share of one whole is each part, 6 parts or fewer? | `donut` (more parts: `hbar`) |
+
+On `phone`, `bar` holds about 7 short labels; with longer names or more of them, use `hbar`, which puts each name
+on its own line above its bar (up to about 9 rows; past that the names go beside the bars and are shortened).
+Keep line series names short (about 12 characters) or they move from the line ends into a legend.
 
 Bars always start at zero; the script does it. A line may leave zero out (`"zero": false`) when the change is
 the point and zero is far below. More than 6 series, or a donut over 6 slices, is refused: group the small ones
@@ -52,7 +59,7 @@ as "Other". Order categories by value unless they have their own order (days, mo
 | `highlight` | one label to keep in colour while the others go grey: use it when one bar or point is the story |
 | `prefix`, `suffix`, `decimals` | how values read: `"$"`, `"%"`, `" ms"`; decimals 0 to 4, 0 if left out |
 | `theme` | `dark` (default, as Reactor and the app look) or `light` (for documents and slides) |
-| `size` | `wide` 960×540 (default), `square` 760×760, `tall` 640×800 for a phone; the PNG is twice that |
+| `size` | `phone` 360×450 for any chart attached to a chat reply, drawn to be read on a phone at about its own size, PNG three times that; `wide` 960×540 (default), `square` 760×760 or `tall` 640×800 for documents, slides and pages, PNG twice that |
 | `source` | where the numbers come from, shown small at the bottom |
 | `zero` | `false` lets a line's axis leave zero out; bars ignore it |
 
@@ -77,7 +84,8 @@ seen without reading the subtitle. If not, shorten the labels, change the type o
 
 ## 6. Hand it over
 
-In a Selan Reactor chat, attach the PNG with the `attach_file` tool, and the CSV too when the person may want the
-numbers; say the takeaway in your reply in one line. Elsewhere, give the paths. Say where the numbers came from.
+In a Selan Reactor chat, draw it with `"size": "phone"`: the app shows a reply's picture across the reply's
+width. Attach the PNG with the `attach_file` tool, and the CSV too when the person may want the numbers; say the
+takeaway in your reply in one line. Elsewhere, give the paths. Say where the numbers came from.
 
 The rules behind these choices, with their sources: [references/rules.md](references/rules.md).

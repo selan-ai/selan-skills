@@ -1,4 +1,4 @@
-"""SVG to PNG at twice the size, with the first drawer this machine has. Nothing is installed: none found is said."""
+"""SVG to PNG at its size's scale, with the first drawer this machine has. Nothing is installed: none found is said."""
 
 from __future__ import annotations
 
@@ -10,7 +10,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-SCALE = 2
+from spec import Layout
+
 TIMEOUT = 60
 
 CHROMES = [
@@ -58,18 +59,18 @@ def _chrome() -> str | None:
     return None
 
 
-def _with_chrome(chrome: str, svg: Path, png: Path, width: int, height: int) -> bool:
+def _with_chrome(chrome: str, svg: Path, png: Path, layout: Layout) -> bool:
     with tempfile.TemporaryDirectory() as profile:
         return _run([
             chrome, "--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run", "--no-sandbox",
-            f"--user-data-dir={profile}", f"--force-device-scale-factor={SCALE}", f"--window-size={width},{height}",
+            f"--user-data-dir={profile}", f"--force-device-scale-factor={layout.scale}", f"--window-size={layout.width},{layout.height}",
             f"--screenshot={png}", svg.resolve().as_uri(),
         ]) and _found(png)
 
 
-def _with_quick_look(svg: Path, png: Path, width: int, height: int) -> bool:
+def _with_quick_look(svg: Path, png: Path, layout: Layout) -> bool:
     with tempfile.TemporaryDirectory() as out:
-        if not _run(["qlmanage", "-t", "-s", str(max(width, height) * SCALE), "-o", out, str(svg)]):
+        if not _run(["qlmanage", "-t", "-s", str(max(layout.width, layout.height) * layout.scale), "-o", out, str(svg)]):
             return False
         made = Path(out) / f"{svg.name}.png"
         if not _found(made):
@@ -78,16 +79,16 @@ def _with_quick_look(svg: Path, png: Path, width: int, height: int) -> bool:
         return True
 
 
-def to_png(svg: Path, png: Path, width: int, height: int) -> str | None:
+def to_png(svg: Path, png: Path, layout: Layout) -> str | None:
     """Draws `svg` into `png`; answers the drawer used, or None when this machine has none."""
     png.unlink(missing_ok=True)
-    if shutil.which("rsvg-convert") and _run(["rsvg-convert", "-z", str(SCALE), "-o", str(png), str(svg)]) and _found(png):
+    if shutil.which("rsvg-convert") and _run(["rsvg-convert", "-z", str(layout.scale), "-o", str(png), str(svg)]) and _found(png):
         return "rsvg-convert"
-    if shutil.which("resvg") and _run(["resvg", "--zoom", str(SCALE), str(svg), str(png)]) and _found(png):
+    if shutil.which("resvg") and _run(["resvg", "--zoom", str(layout.scale), str(svg), str(png)]) and _found(png):
         return "resvg"
     chrome = _chrome()
-    if chrome and _with_chrome(chrome, svg, png, width, height):
+    if chrome and _with_chrome(chrome, svg, png, layout):
         return "chrome"
-    if platform.system() == "Darwin" and shutil.which("qlmanage") and _with_quick_look(svg, png, width, height):
+    if platform.system() == "Darwin" and shutil.which("qlmanage") and _with_quick_look(svg, png, layout):
         return "quick-look"
     return None
