@@ -594,6 +594,76 @@
     done();
   }
 
+  // ---------------------------------------------------------------- AR files (scripts/ar.py; needs three-export.min.js)
+
+  // A copy of the model in metres, with what AR viewers do not draw turned into what they do: an unlit material
+  // becomes a matte standard one, and a decal's polygon offset (a renderer trick, not geometry) is dropped.
+  function arCopy(model, metres) {
+    var copy = model.clone(true);
+    copy.scale.multiplyScalar(metres);
+    var changed = 0;
+    copy.traverse(function (o) {
+      if (!o.isMesh) return;
+      var m = o.material;
+      if (m.isMeshBasicMaterial) {
+        o.material = new T.MeshStandardMaterial({ color: m.color.clone(), map: m.map || null, roughness: 1, metalness: 0 });
+        changed++;
+      } else if (m.polygonOffset) {
+        o.material = m.clone();
+        o.material.polygonOffset = false;
+        changed++;
+      }
+    });
+    var scene = new T.Scene();
+    scene.add(copy);
+    scene.updateMatrixWorld(true);
+    return { scene: scene, changed: changed };
+  }
+
+  function base64(bytes) {
+    var out = '', chunk = 0x8000;
+    for (var i = 0; i < bytes.length; i += chunk) out += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    return btoa(out);
+  }
+
+  // GLB (Android Scene Viewer, and any 3D tool) and USDZ (iPhone and iPad AR Quick Look) of the model as it stands
+  // at setOpen(open). metres: one model unit in metres (root.userData.metres when not given). Resolves to
+  // { glb, usdz } in base64 and `info`; the GLB is read back with GLTFLoader, so `info.reread` proves it loads.
+  function exportAR(name, o) {
+    o = o || {};
+    if (!T.GLTFExporter || !T.USDZExporter) return Promise.reject(new Error('load three-export.min.js after three.min.js'));
+    var model = create(name);
+    var metres = o.metres || model.userData.metres;
+    if (!(metres > 0)) return Promise.reject(new Error('model "' + name + '": set root.userData.metres (one unit in metres)'));
+    if (model.userData.runtime && model.userData.runtime.setOpen) model.userData.runtime.setOpen(o.open || 0);
+    model.updateMatrixWorld(true);
+    var ar = arCopy(model, metres);
+    var warnings = [], warn = console.warn;
+    console.warn = function () { warnings.push(Array.prototype.join.call(arguments, ' ')); };
+    var info = { metres: metres, converted: ar.changed };
+    var glb;
+    return new T.GLTFExporter().parseAsync(ar.scene, { binary: true, onlyVisible: true })
+      .then(function (buffer) {
+        glb = new Uint8Array(buffer);
+        return new T.USDZExporter().parseAsync(ar.scene, { quickLookCompatible: true, maxTextureSize: 1024 });
+      })
+      .then(function (usdz) {
+        return new Promise(function (resolve, reject) {
+          new T.GLTFLoader().parse(glb.buffer.slice(0), '', function (gltf) {
+            var box = new T.Box3().setFromObject(gltf.scene), size = box.getSize(new T.Vector3()), meshes = 0, tris = 0;
+            gltf.scene.traverse(function (m) {
+              if (!m.isMesh) return;
+              meshes++;
+              tris += (m.geometry.index ? m.geometry.index.count : m.geometry.getAttribute('position').count) / 3;
+            });
+            info.reread = { meshes: meshes, triangles: Math.round(tris), size: [size.x, size.y, size.z].map(function (v) { return Math.round(v * 1000) / 1000; }) };
+            resolve({ glb: base64(glb), usdz: base64(usdz), info: info, scene: gltf.scene });
+          }, reject);
+        });
+      })
+      .finally(function () { console.warn = warn; info.warnings = warnings; });
+  }
+
   var kit = {
     roundedRect: roundedRect, loft: loft, shoulder: shoulder, roundedSlab: roundedSlab, lathe: lathe, helix: helix, wall: wall,
     shapes: shapes, decal: decal, refine: refine, plastic: plastic, metal: metal, paint: paint, dark: dark,
@@ -601,6 +671,6 @@
 
   window.Product3D = {
     define: define, create: create, kit: kit, stage: stage, frame: frame, mount: mount,
-    review: review, photoBox: photoBox, samplePhoto: samplePhoto,
+    review: review, photoBox: photoBox, samplePhoto: samplePhoto, exportAR: exportAR,
   };
 })();

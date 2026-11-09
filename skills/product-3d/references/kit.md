@@ -36,6 +36,11 @@ default tone mapping, `'aces'`, pushes saturated reds and oranges toward pink; `
 `'neutral'` keeps colours closest to their values. `environment` (default 0.75) is how much the studio's light
 reflects: raise it for bright metal. A material's own `envMapIntensity` does the same for one material.
 
+## Size, for AR
+
+`root.userData.metres` is one model unit in metres: 0.3 for a bin whose body is 30 cm wide, 0.068 for a screw pile
+whose tube is 68 mm. `ar.py` scales the AR files by it; without it, it asks for `--metres`.
+
 ## Moving parts
 
 A moving part is a `THREE.Group` placed at its hinge, with the part's meshes inside it offset from the hinge.

@@ -1,7 +1,7 @@
 {
   "name": "selan-skills",
   "description": "Skills for Claude Code from Selan: charts in Selan's style as PNG, SVG and CSV, and products rebuilt from a photo as turnable 3D models for web pages and decks.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "author": {
     "name": "Selan",
     "url": "https://selan.ai"

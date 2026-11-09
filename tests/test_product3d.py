@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 import unittest.mock
+import zipfile
 import zlib
 from pathlib import Path
 
@@ -14,6 +15,7 @@ SCRIPTS = SKILL / "scripts"
 EXAMPLE = SKILL / "references" / "example-pedal-bin.js"
 sys.path.insert(0, str(SCRIPTS))
 
+import ar  # noqa: E402
 import chrome  # noqa: E402
 import export  # noqa: E402
 from common import InputError, model_name  # noqa: E402
@@ -112,7 +114,7 @@ class ExportTests(unittest.TestCase):
 
     def test_a_hidden_button_stays_hidden_whatever_display_the_page_gives_it(self) -> None:
         markup = export.snippet("x", "x.js", None, "x", export.WORDS["lt"], export.Load.CLICK)
-        self.assertIn(".p3d-btn[hidden] { display: none !important; }", markup)
+        self.assertIn(".p3d-btn[hidden], .p3d-ar[hidden] { display: none !important; }", markup)
         self.assertIn("function hide(el) { el.hidden = true; el.style.display = 'none'; }", markup)
         self.assertNotIn("btn.hidden = true", markup)
 
@@ -130,6 +132,40 @@ class ExportTests(unittest.TestCase):
                 done = run("export.py", str(EXAMPLE), "--out", folder, *args)
                 self.assertEqual(done.returncode, 2)
                 self.assertIn(said, done.stderr)
+
+
+class ArFileTests(unittest.TestCase):
+    def test_a_glb_needs_its_magic_version_length_and_a_mesh(self) -> None:
+        doc = json.dumps({"asset": {"version": "2.0"}, "meshes": [{}], "nodes": [{}]}).encode()
+        doc += b" " * (-len(doc) % 4)
+        good = b"glTF" + struct.pack("<II", 2, 20 + len(doc)) + struct.pack("<II", len(doc), 0x4E4F534A) + doc
+        self.assertEqual(ar.check_glb(good)["meshes"], 1)
+        for bad in (b"nope" + good[4:], good[:8] + struct.pack("<I", 9) + good[12:], good + b"x"):
+            with self.assertRaises(ar.CheckError):
+                ar.check_glb(bad)
+
+    def test_a_usdz_must_be_stored_aligned_and_start_with_a_usd_layer(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            cases = (([("model.usda", zipfile.ZIP_DEFLATED)], "compressed"),
+                     ([("texture.png", zipfile.ZIP_STORED), ("model.usda", zipfile.ZIP_STORED)], "first file"),
+                     ([("model.usda", zipfile.ZIP_STORED)], "64-byte"))
+            for index, (entries, said) in enumerate(cases):
+                path = Path(folder) / f"{index}.usdz"
+                with zipfile.ZipFile(path, "w") as archive:
+                    for name, how in entries:
+                        archive.writestr(zipfile.ZipInfo(name), "#usda 1.0\n", compress_type=how)
+                with self.assertRaises(ar.CheckError) as raised:
+                    ar.check_usdz(path)
+                self.assertIn(said, str(raised.exception))
+
+    def test_the_snippet_has_a_hidden_ar_link_whose_one_child_is_its_picture(self) -> None:
+        markup = export.snippet("x", "x.js", None, "Bin", export.WORDS["lt"], export.Load.CLICK, {"glb": "x.glb", "usdz": "x.usdz"})
+        link = markup[markup.index('<a class="p3d-ar"'):markup.index("</a>", markup.index('<a class="p3d-ar"')) + 4]
+        self.assertIn('rel="ar" href="x.usdz" data-glb="x.glb" hidden>', link)
+        self.assertEqual(link.count("<"), 3)  # <a>, its one <img>, </a>: what Quick Look asks for
+        self.assertIn('alt="Žiūrėti savo erdvėje"', link)
+        self.assertIn("scene-viewer", markup)
+        self.assertNotIn("p3d-ar", export.snippet("x", "x.js", None, "Bin", export.WORDS["lt"], export.Load.CLICK).split("<style>")[0])
 
 
 class ReviewArgumentTests(unittest.TestCase):
@@ -226,6 +262,27 @@ class ChromeTests(unittest.TestCase):
                 "document.getElementById('p3d-info').textContent=getComputedStyle(f.querySelector('.p3d-btn')).display}"
                 "catch(e){document.getElementById('p3d-info').textContent='error '+e}</script>")
             self.assertIn('<pre id="p3d-info">none</pre>', chrome.dump_dom(page))
+
+    def test_ar_writes_a_glb_and_usdz_in_metres_that_read_back(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            done = run("ar.py", str(EXAMPLE), "--out", folder)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            out = json.loads(done.stdout)
+            self.assertGreater(out["glb_check"]["meshes"], 3)
+            self.assertEqual(out["usdz_check"]["files"][0], "model.usda")
+            self.assertAlmostEqual(out["size_m"][1], 0.6, delta=0.05)  # 2 units tall at 0.3 m a unit
+            self.assertIn(out["arkit"], ("ok", None))
+            self.assertTrue(Path(out["check"]).is_file())
+
+    def test_ar_without_a_size_in_metres_exits_2_and_says_how_to_give_one(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            model = Path(folder) / "m.js"
+            model.write_text("Product3D.define('box', function (THREE, kit) { var g = new THREE.Group();"
+                             " g.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), kit.plastic('#888'))); return g; });")
+            done = run("ar.py", str(model), "--out", folder)
+            self.assertEqual(done.returncode, 2)
+            self.assertIn("userData.metres", done.stderr)
+            self.assertEqual(run("ar.py", str(model), "--out", folder, "--metres", "0.2").returncode, 0)
 
     def test_sample_measures_box_fill_aspect_and_colours(self) -> None:
         with tempfile.TemporaryDirectory() as folder:

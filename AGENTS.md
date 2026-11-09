@@ -8,6 +8,7 @@ A Claude Code plugin of skills. What each does is in `README.md`; this file is w
 python3 -m unittest discover tests                          # every script, on made-up specs; no network
 python3 skills/charts/scripts/chart.py examples/failed-runs.json --out /tmp/charts   # one chart, as the skill draws it
 python3 skills/product-3d/scripts/review.py skills/product-3d/references/example-pedal-bin.js --yaw 22 --elevation 15   # a 3D review sheet
+python3 skills/product-3d/scripts/ar.py skills/product-3d/references/example-pedal-bin.js --out /tmp/ar   # its GLB and USDZ, checked
 claude plugin validate .claude-plugin/plugin.json             # manifests and every SKILL.md
 claude -p "chart this: ..." --plugin-dir . --model sonnet --output-format json   # the real test: does it trigger, and what it costs
 ```

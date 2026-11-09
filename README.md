@@ -40,7 +40,9 @@ against the photo round by round, and packs it for a web page or a slide deck.
 Each round renders the model over the photo at 50%, fitted to the object's box in it, and from the sides the photo
 does not show, so a wrong proportion is an outline that does not line up. Moving parts (a lid, a pedal, a door)
 open with a button or a click on the model. The export is one script, about 200 KB gzip, that loads only when the
-visitor asks (a page) or the slide comes near (a deck), and works from a deck opened from disk.
+visitor asks (a page) or the slide comes near (a deck), and works from a deck opened from disk. With `--ar` it also
+writes GLB and USDZ files at the product's real size and a "view in your space" link, for AR Quick Look on an iPhone
+or iPad and Scene Viewer on Android.
 
 For hard products on a plain background: bins, boxes, bottles, tools, fasteners, housings. It is a likeness, not a
 measurement; for exact dimensions, start from the CAD file. It needs Python 3.9 or later and Chrome or Chromium
