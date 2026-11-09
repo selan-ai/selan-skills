@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 import zlib
 from pathlib import Path
 
@@ -61,6 +62,17 @@ class ModelFileTests(unittest.TestCase):
         self.assertIn("RoomEnvironment", text)
         self.assertNotIn("import ", text[:2000])
         self.assertTrue((SKILL / "kit" / "three.LICENSE").is_file())
+
+
+class ChromeFindTests(unittest.TestCase):
+    def test_a_chrome_named_in_the_environment_comes_first_and_a_missing_one_is_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            named = Path(folder) / "chrome"
+            named.write_text("")
+            with unittest.mock.patch.dict("os.environ", {"CHROME": str(named)}):
+                self.assertEqual(chrome.find(), str(named))
+            with unittest.mock.patch.dict("os.environ", {"CHROME": str(named) + "-gone"}):
+                self.assertNotEqual(chrome.find(), str(named) + "-gone")
 
 
 class ExportTests(unittest.TestCase):

@@ -43,6 +43,9 @@ class ChromeError(Exception):
 
 
 def find() -> str | None:
+    named = os.environ.get("CHROME")  # what a setup script found, such as selan-modernise-web-project's setup_vm.sh
+    if named and os.path.isfile(named):
+        return named
     for name in CHROMES:
         found = shutil.which(name) or (name if os.path.isfile(name) else None)
         if found:
