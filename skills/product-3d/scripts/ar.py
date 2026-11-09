@@ -23,37 +23,51 @@ import zipfile
 from pathlib import Path
 
 import chrome
-from common import KIT, PRODUCT3D, THREE, InputError, model_name, page, read_info
+from common import KIT, PRODUCT3D, THREE, InputError, model_name, page
 
 EXPORTERS = KIT / "three-export.min.js"
 SHEET = 360  # px, each of the check sheet's two views
 
 CHECK = """
-var o = OPTIONS, out = document.getElementById('p3d-info');
-Product3D.exportAR(o.model, { metres: o.metres, open: o.open }).then(function (r) {
-  [[Product3D.create(o.model), 'the model'], [r.scene, 'its GLB, read back']].forEach(function (pair) {
-    var d = document.createElement('div'); d.className = 'p';
-    var l = document.createElement('span'); l.textContent = pair[1]; d.appendChild(l);
-    var rend = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-    rend.setPixelRatio(1); rend.setSize(SIZE, SIZE);
-    if (pair[0].userData.runtime && pair[0].userData.runtime.setOpen) pair[0].userData.runtime.setOpen(o.open);
-    var st = Product3D.stage(rend, pair[0], { background: '#ffffff' });
-    var cam = new THREE.PerspectiveCamera(26, 1, 0.001, 1000);
-    Product3D.frame(cam, pair[0], { width: SIZE, height: SIZE, yaw: 22, elevation: 15, fill: 0.8 });
-    rend.render(st.scene, cam);
-    d.appendChild(rend.domElement); document.getElementById('row').appendChild(d);
-  });
-  out.textContent = JSON.stringify({ glb: r.glb, usdz: r.usdz, info: r.info, errors: __p3dErrors });
-}).catch(function (e) {
-  __p3dErrors.push(String(e && e.message || e));
-  out.textContent = JSON.stringify({ errors: __p3dErrors });
-});
+var o = OPTIONS;
+function post(result) {
+  result.errors = (result.errors || []).concat(__p3dErrors);
+  // In 1 MB parts, one after another, each tried again on failure: a request can fail at once while the browser
+  // starts up (an extension a policy installs, for one), and one body of several MB fails more often.
+  var body = JSON.stringify(result), size = 1 << 20, parts = Math.max(1, Math.ceil(body.length / size));
+  (function send(i, tries) {
+    if (i >= parts) return;
+    fetch(location.hash.slice(1) + '?part=' + i + '&of=' + parts, { method: 'POST', mode: 'no-cors', body: body.slice(i * size, (i + 1) * size) })
+      .then(function () { send(i + 1, 0); })
+      .catch(function () { if (tries < 12) setTimeout(function () { send(i, tries + 1); }, 250 * (tries + 1)); });
+  })(0, 0);
+}
+try {
+  Product3D.exportAR(o.model, { metres: o.metres, open: o.open }).then(function (r) {
+    // the check sheet: the model and its GLB read back, side by side, drawn into one canvas
+    var sheet = document.createElement('canvas'), pad = 10;
+    sheet.width = 3 * pad + 2 * SIZE; sheet.height = 2 * pad + SIZE;
+    var g = sheet.getContext('2d');
+    g.fillStyle = '#ecebe7'; g.fillRect(0, 0, sheet.width, sheet.height);
+    [[Product3D.create(o.model), 'the model'], [r.scene, 'its GLB, read back']].forEach(function (pair, i) {
+      var rend = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+      rend.setPixelRatio(1); rend.setSize(SIZE, SIZE);
+      if (pair[0].userData.runtime && pair[0].userData.runtime.setOpen) pair[0].userData.runtime.setOpen(o.open);
+      var st = Product3D.stage(rend, pair[0], { background: '#ffffff' });
+      var cam = new THREE.PerspectiveCamera(26, 1, 0.001, 1000);
+      Product3D.frame(cam, pair[0], { width: SIZE, height: SIZE, yaw: 22, elevation: 15, fill: 0.8 });
+      rend.render(st.scene, cam);
+      var x = pad + i * (SIZE + pad);
+      g.drawImage(rend.domElement, x, pad);
+      g.font = '13px system-ui, sans-serif'; g.fillStyle = 'rgba(255,255,255,.88)';
+      g.fillRect(x + 6, pad + 4, g.measureText(pair[1]).width + 12, 20);
+      g.fillStyle = '#333'; g.fillText(pair[1], x + 12, pad + 19);
+      rend.dispose();
+    });
+    post({ glb: r.glb, usdz: r.usdz, info: r.info, sheet: sheet.toDataURL('image/png').split(',')[1] });
+  }).catch(function (e) { post({ errors: [String(e && e.message || e)] }); });
+} catch (e) { post({ errors: [String(e && e.stack || e)] }); }
 """
-STYLE = (
-    "body{background:#ecebe7;font:13px system-ui,sans-serif}#row{display:flex;gap:10px;padding:10px}"
-    ".p{position:relative;background:#fff}.p canvas{display:block}.p span{position:absolute;left:6px;top:4px;"
-    "padding:1px 6px;border-radius:4px;background:rgba(255,255,255,.88);color:#333}"
-)
 
 
 class CheckError(Exception):
@@ -126,20 +140,21 @@ def run(model: Path, out: Path, metres: float | None = None, open_state: float =
     options = {"model": name, "metres": metres, "open": open_state}
     html_path = out / f"{name}-ar-check.html"
     call = CHECK.replace("OPTIONS", json.dumps(options)).replace("SIZE", str(SHEET))
-    html_path.write_text(page([THREE, EXPORTERS, PRODUCT3D, model], '<div id="row"></div>', call, STYLE), encoding="utf-8")
-    result = read_info(chrome.dump_dom(html_path, budget_ms=30000))
+    html_path.write_text(page([THREE, EXPORTERS, PRODUCT3D, model], "", call), encoding="utf-8")
+    # The exporters encode textures with canvas.toBlob, which --dump-dom's virtual time does not wait for:
+    # the page posts its result instead, and this waits for it in real time.
+    result = json.loads(chrome.collect(html_path).decode("utf-8"))
     if result.get("errors"):
         raise CheckError("; ".join(result["errors"]))
-    glb, usdz = out / f"{name}.glb", out / f"{name}.usdz"
+    glb, usdz, sheet = out / f"{name}.glb", out / f"{name}.usdz", out / f"{name}-ar-check.png"
     glb.write_bytes(base64.b64decode(result["glb"]))
     usdz.write_bytes(base64.b64decode(result["usdz"]))
+    sheet.write_bytes(base64.b64decode(result["sheet"]))
     report = {"glb": str(glb), "usdz": str(usdz), "glb_check": check_glb(glb.read_bytes()), "usdz_check": check_usdz(usdz)}
-    sheet = out / f"{name}-ar-check.png"
-    chrome.screenshot(html_path, sheet, 3 * 10 + 2 * SHEET, 2 * 10 + SHEET, budget_ms=30000)
-    info = result["info"]
     verdict = arkit(usdz)
     if verdict not in (None, "ok"):
         raise CheckError(f"usdz: usdchecker --arkit: {verdict}")
+    info = result["info"]
     report.update({"check": str(sheet), "arkit": verdict, "metres": info["metres"],
                    "size_m": info["reread"]["size"], "triangles": info["reread"]["triangles"],
                    "converted": info["converted"], "warnings": info["warnings"]})
