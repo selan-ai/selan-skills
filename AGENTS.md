@@ -7,6 +7,7 @@ A Claude Code plugin of skills. What each does is in `README.md`; this file is w
 ```sh
 python3 -m unittest discover tests                          # every script, on made-up specs; no network
 python3 skills/charts/scripts/chart.py examples/failed-runs.json --out /tmp/charts   # one chart, as the skill draws it
+python3 skills/product-3d/scripts/review.py skills/product-3d/references/example-pedal-bin.js --yaw 22 --elevation 15   # a 3D review sheet
 claude plugin validate .claude-plugin/plugin.json             # manifests and every SKILL.md
 claude -p "chart this: ..." --plugin-dir . --model sonnet --output-format json   # the real test: does it trigger, and what it costs
 ```
@@ -25,6 +26,9 @@ claude -p "chart this: ..." --plugin-dir . --model sonnet --output-format json  
   background: change a colour and that test says whether it still reads.
 - **Look at the output.** A change to `render.py` is checked by drawing `examples/` and every type, and reading the
   PNGs, not only by the tests.
+- **product-3d runs in Chrome, not Node.** `kit/three.min.js` is a prebuilt classic script (how: its
+  `references/vendor.md`), so models are classic scripts too and a deck can open from `file://`; the scripts only
+  write a page and run headless Chrome on it. Its tests that need Chrome skip without one.
 - **Closed sets are enums** (`ChartType`, `Size`, `ThemeName`), and a spec error names the field and what it may be.
 
 ## Releasing

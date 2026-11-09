@@ -1,0 +1,189 @@
+import json
+import struct
+import subprocess
+import sys
+import tempfile
+import unittest
+import unittest.mock
+import zlib
+from pathlib import Path
+
+SKILL = Path(__file__).resolve().parent.parent / "skills" / "product-3d"
+SCRIPTS = SKILL / "scripts"
+EXAMPLE = SKILL / "references" / "example-pedal-bin.js"
+sys.path.insert(0, str(SCRIPTS))
+
+import chrome  # noqa: E402
+import export  # noqa: E402
+from common import InputError, model_name  # noqa: E402
+
+HAS_CHROME = chrome.find() is not None
+
+
+def run(script: str, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(SCRIPTS / script), *args], capture_output=True, text=True, timeout=300)
+
+
+def png(path: Path, width: int, height: int, box: tuple, color: tuple) -> None:
+    """A white picture with one filled rectangle, written with the standard library."""
+    rows = b""
+    for y in range(height):
+        row = bytearray([0])
+        for x in range(width):
+            inside = box[0] <= x <= box[2] and box[1] <= y <= box[3]
+            row += bytes(color if inside else (255, 255, 255))
+        rows += bytes(row)
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+    head = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", head) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+class ModelFileTests(unittest.TestCase):
+    def test_the_name_comes_from_the_one_define_call(self) -> None:
+        self.assertEqual(model_name(EXAMPLE), "pedal-bin")
+
+    def test_a_file_without_one_lowercase_define_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            for text in ("var x = 1;", "Product3D.define('Bad Name', function () {});",
+                         "Product3D.define('a', f); Product3D.define('b', f);"):
+                model = Path(folder) / "model.js"
+                model.write_text(text)
+                with self.assertRaises(InputError):
+                    model_name(model)
+
+    def test_the_vendored_three_sets_one_global_with_controls_and_environment(self) -> None:
+        text = (SKILL / "kit" / "three.min.js").read_text(encoding="utf-8")
+        self.assertTrue(text.startswith("/*! three.js 0.187.0"))
+        self.assertIn("globalThis.THREE", text)
+        self.assertIn("OrbitControls", text)
+        self.assertIn("RoomEnvironment", text)
+        self.assertNotIn("import ", text[:2000])
+        self.assertTrue((SKILL / "kit" / "three.LICENSE").is_file())
+
+
+class ChromeFindTests(unittest.TestCase):
+    def test_a_chrome_named_in_the_environment_comes_first_and_a_missing_one_is_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            named = Path(folder) / "chrome"
+            named.write_text("")
+            with unittest.mock.patch.dict("os.environ", {"CHROME": str(named)}):
+                self.assertEqual(chrome.find(), str(named))
+            with unittest.mock.patch.dict("os.environ", {"CHROME": str(named) + "-gone"}):
+                self.assertNotEqual(chrome.find(), str(named) + "-gone")
+
+
+class ExportTests(unittest.TestCase):
+    def test_one_script_holds_three_then_the_kit_then_the_model(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            done = run("export.py", str(EXAMPLE), "--out", folder)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            out = json.loads(done.stdout)
+            text = Path(out["script"]).read_text(encoding="utf-8")
+            three, kit, model = text.index("globalThis.THREE"), text.index("window.Product3D ="), text.index("Product3D.define('pedal-bin'")
+            self.assertLess(three, kit)
+            self.assertLess(kit, model)
+            self.assertNotIn("<script", text)
+
+    def test_the_snippet_names_the_model_escapes_words_and_copies_the_poster(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            poster = Path(folder) / "photo.png"
+            png(poster, 20, 20, (5, 5, 14, 14), (30, 90, 50))
+            done = run("export.py", str(EXAMPLE), "--out", folder + "/out", "--poster", str(poster),
+                       "--label", 'Bin "A" <green>', "--load", "near", "--lang", "en")
+            self.assertEqual(done.returncode, 0, done.stderr)
+            markup = (Path(folder) / "out" / "pedal-bin.html").read_text(encoding="utf-8")
+            self.assertIn('data-model="pedal-bin"', markup)
+            self.assertIn('data-load="near"', markup)
+            self.assertIn("Bin &quot;A&quot; &lt;green&gt;", markup)
+            self.assertNotIn('<green>', markup)
+            self.assertIn('src="pedal-bin-poster.png"', markup)
+            self.assertIn("Loading the 3D model", markup)
+            self.assertTrue((Path(folder) / "out" / "pedal-bin-poster.png").is_file())
+
+    def test_click_starts_with_the_show_button_and_near_with_it_disabled(self) -> None:
+        words = export.WORDS["lt"]
+        click = export.snippet("x", "x.js", None, "x", words, export.Load.CLICK)
+        near = export.snippet("x", "x.js", None, "x", words, export.Load.NEAR)
+        self.assertIn('class="p3d-btn">Rodyti 3D</button>', click)
+        self.assertIn('class="p3d-btn" disabled>Kraunamas 3D modelis</button>', near)
+
+    def test_wrong_choices_exit_2_and_say_what_they_may_be(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            for args, said in ((["--lang", "de"], "lang: lt or en"), (["--load", "soon"], "load: click or near"),
+                               (["--poster", "nope.gif"], "reference:")):
+                done = run("export.py", str(EXAMPLE), "--out", folder, *args)
+                self.assertEqual(done.returncode, 2)
+                self.assertIn(said, done.stderr)
+
+
+class ReviewArgumentTests(unittest.TestCase):
+    def test_out_of_range_angles_and_a_bad_box_exit_2(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            photo = Path(folder) / "p.png"
+            png(photo, 10, 10, (2, 2, 7, 7), (0, 0, 0))
+            for args, said in ((["--yaw", "200"], "yaw:"), (["--elevation", "90"], "elevation:"),
+                               (["--reference", str(photo), "--box", "1,2,3"], "box: 4 numbers"),
+                               (["--box", "1,2,3,4"], "box: only with --reference"),
+                               (["--reference", str(photo), "--sample", "lid"], "sample:")):
+                done = run("review.py", str(EXAMPLE), *args)
+                self.assertEqual(done.returncode, 2, done.stderr)
+                self.assertIn(said, done.stderr)
+
+
+@unittest.skipUnless(HAS_CHROME, "no Chrome or Chromium on this machine")
+class ChromeTests(unittest.TestCase):
+    def test_review_draws_the_example_with_its_turns_and_open_state(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            done = run("review.py", str(EXAMPLE), "--yaw", "22", "--elevation", "15", "--out", folder + "/r.png")
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            out = json.loads(done.stdout)
+            self.assertTrue(out["moving"])
+            self.assertGreater(out["triangles"], 1000)
+            self.assertAlmostEqual(out["size"][0], 1.13, delta=0.05)
+            self.assertGreater(Path(out["png"]).stat().st_size, 20000)
+
+    def test_review_finds_the_object_in_a_plain_photo_and_reads_its_colour(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            photo = Path(folder) / "photo.png"
+            png(photo, 300, 400, (100, 80, 200, 360), (31, 92, 51))
+            done = run("review.py", str(EXAMPLE), "--reference", str(photo), "--sample", "body:150,200",
+                       "--out", folder + "/r.png")
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            out = json.loads(done.stdout)
+            for found, want in zip(out["reference"]["box"], (100, 80, 200, 360)):
+                self.assertLessEqual(abs(found - want), 2)
+            self.assertEqual(out["samples"]["body"], "#1f5c33")
+
+    def test_a_model_that_throws_exits_1_with_the_error(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            model = Path(folder) / "m.js"
+            model.write_text("Product3D.define('broken', function (THREE, kit) { throw new Error('no lid yet'); });")
+            done = run("review.py", str(model), "--out", folder + "/r.png")
+            self.assertEqual(done.returncode, 1)
+            self.assertIn("no lid yet", done.stdout)
+
+    def test_a_syntax_error_is_reported_with_its_file(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            model = Path(folder) / "m.js"
+            model.write_text("Product3D.define('broken', function (THREE, kit) { return new THREE.Group( ; });")
+            done = run("review.py", str(model), "--out", folder + "/r.png")
+            self.assertEqual(done.returncode, 1)
+            self.assertIn("m.js", done.stdout)
+
+    def test_sample_measures_box_fill_aspect_and_colours(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            photo = Path(folder) / "photo.png"
+            png(photo, 300, 400, (100, 80, 200, 360), (200, 40, 30))
+            done = run("sample.py", str(photo), "--point", "red:150,200", "--point", "bg:10,10")
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            out = json.loads(done.stdout)
+            self.assertEqual(out["points"], {"red": "#c8281e", "bg": "#ffffff"})
+            self.assertAlmostEqual(out["fill"], 0.7, delta=0.01)
+            self.assertAlmostEqual(out["aspect"], 2.8, delta=0.06)
+
+
+if __name__ == "__main__":
+    unittest.main()
