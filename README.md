@@ -52,6 +52,19 @@ measurement; for exact dimensions, start from the CAD file. It needs Python 3.9 
 /selan-skills:product-3d   or just: "make this product photo a 3D model for the website"
 ```
 
+## selan-site-design
+
+How a Selan Modernise website looks: three templates of one family (Panorama, Split, Harbour) chosen by the
+company's field, the owner's hard rules (sentence-case short headings, real or stock photos credited only in the
+report, no dashes, SVG logos, a pre-rendered map, nothing invented) and the visual QA a preview passes before anyone
+sees it. The code it describes is `rebuild/` in selan-modernise-web-project.
+
+![Panorama: a big headline, the photo wide below, key facts under it](skills/selan-site-design/templates/panorama.jpg)
+
+```
+/selan-skills:selan-site-design   or just: "rebuild this company's site as a Selan preview"
+```
+
 ## License
 
 MIT
