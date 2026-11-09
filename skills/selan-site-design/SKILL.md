@@ -128,7 +128,8 @@ Build, `check.py`, then full-page screenshots at 1440 and at 390 with real mobil
   footer); `qa_shots.js` measures it and exits 1 when the gap is smaller.
 - No heading wraps into a lone word; no card text cut off; buttons readable.
 - No placeholder, preview note, masked contact, photo credit or internal remark visible.
-- Header on a phone: logo, phone pill, then the menu row; it does not cover the content.
+- Header on a phone: logo, phone pill, then the menu row; it does not cover the content and keeps at least 16 px
+  above the hero text, also when a long name pushes the pills to a second row (`qa_shots.js` fails it).
 - The mail's screenshots (`mail.py`) show the settled page, not one mid-animation.
 
 ## Adding a template
