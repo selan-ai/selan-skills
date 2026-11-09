@@ -30,6 +30,26 @@ Playwright's) the machine has, or Quick Look on a Mac; with none of them, you ge
 /selan-skills:charts   or just: "chart the failed runs per day this week"
 ```
 
+## product-3d
+
+Give it one photo of a product and Claude rebuilds it as a turnable 3D model written in code (three.js), checks it
+against the photo round by round, and packs it for a web page or a slide deck.
+
+![A pedal bin from the example model: the matched view, turned 90, 180 and 270 degrees, and opened](examples/product-3d/pedal-bin-review.png)
+
+Each round renders the model over the photo at 50%, fitted to the object's box in it, and from the sides the photo
+does not show, so a wrong proportion is an outline that does not line up. Moving parts (a lid, a pedal, a door)
+open with a button or a click on the model. The export is one script, about 200 KB gzip, that loads only when the
+visitor asks (a page) or the slide comes near (a deck), and works from a deck opened from disk.
+
+For hard products on a plain background: bins, boxes, bottles, tools, fasteners, housings. It is a likeness, not a
+measurement; for exact dimensions, start from the CAD file. It needs Python 3.9 or later and Chrome or Chromium
+(including Playwright's); three.js comes with the skill.
+
+```
+/selan-skills:product-3d   or just: "make this product photo a 3D model for the website"
+```
+
 ## License
 
 MIT

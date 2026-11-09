@@ -1,6 +1,6 @@
 {
   "name": "selan-skills",
-  "description": "Skills for Claude Code from Selan: charts in Selan's style as PNG, SVG and CSV.",
+  "description": "Skills for Claude Code from Selan: charts in Selan's style as PNG, SVG and CSV, and products rebuilt from a photo as turnable 3D models for web pages and decks.",
   "version": "0.2.0",
   "author": {
     "name": "Selan",
@@ -9,5 +9,14 @@
   "homepage": "https://selan.ai",
   "repository": "https://github.com/selan-ai/selan-skills",
   "license": "MIT",
-  "keywords": ["charts", "data-visualization", "png", "svg", "selan"]
+  "keywords": [
+    "charts",
+    "data-visualization",
+    "png",
+    "svg",
+    "selan",
+    "3d",
+    "threejs",
+    "product"
+  ]
 }
