@@ -1,4 +1,5 @@
 import json
+import math
 import struct
 import subprocess
 import sys
@@ -24,13 +25,19 @@ def run(script: str, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, str(SCRIPTS / script), *args], capture_output=True, text=True, timeout=300)
 
 
-def png(path: Path, width: int, height: int, box: tuple, color: tuple) -> None:
-    """A white picture with one filled rectangle, written with the standard library."""
+def png(path: Path, width: int, height: int, box: tuple, color: tuple, lean: float = 0.0) -> None:
+    """A white picture with one filled rectangle, written with the standard library; `lean` turns the rectangle
+    about its centre by that many degrees, + its top to the right."""
+    cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+    c, s = math.cos(math.radians(lean)), math.sin(math.radians(lean))
     rows = b""
     for y in range(height):
         row = bytearray([0])
         for x in range(width):
-            inside = box[0] <= x <= box[2] and box[1] <= y <= box[3]
+            # the point turned back by the lean, then tested against the upright rectangle
+            dx, dy = x - cx, y - cy
+            ux, uy = cx + dx * c + dy * s, cy - dx * s + dy * c
+            inside = box[0] <= ux <= box[2] and box[1] <= uy <= box[3]
             row += bytes(color if inside else (255, 255, 255))
         rows += bytes(row)
 
@@ -103,6 +110,12 @@ class ExportTests(unittest.TestCase):
             self.assertIn("Loading the 3D model", markup)
             self.assertTrue((Path(folder) / "out" / "pedal-bin-poster.png").is_file())
 
+    def test_a_hidden_button_stays_hidden_whatever_display_the_page_gives_it(self) -> None:
+        markup = export.snippet("x", "x.js", None, "x", export.WORDS["lt"], export.Load.CLICK)
+        self.assertIn(".p3d-btn[hidden] { display: none !important; }", markup)
+        self.assertIn("function hide(el) { el.hidden = true; el.style.display = 'none'; }", markup)
+        self.assertNotIn("btn.hidden = true", markup)
+
     def test_click_starts_with_the_show_button_and_near_with_it_disabled(self) -> None:
         words = export.WORDS["lt"]
         click = export.snippet("x", "x.js", None, "x", words, export.Load.CLICK)
@@ -124,7 +137,7 @@ class ReviewArgumentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             photo = Path(folder) / "p.png"
             png(photo, 10, 10, (2, 2, 7, 7), (0, 0, 0))
-            for args, said in ((["--yaw", "200"], "yaw:"), (["--elevation", "90"], "elevation:"),
+            for args, said in ((["--yaw", "200"], "yaw:"), (["--elevation", "90"], "elevation:"), (["--roll", "120"], "roll:"),
                                (["--reference", str(photo), "--box", "1,2,3"], "box: 4 numbers"),
                                (["--box", "1,2,3,4"], "box: only with --reference"),
                                (["--reference", str(photo), "--sample", "lid"], "sample:")):
@@ -172,6 +185,47 @@ class ChromeTests(unittest.TestCase):
             done = run("review.py", str(model), "--out", folder + "/r.png")
             self.assertEqual(done.returncode, 1)
             self.assertIn("m.js", done.stdout)
+
+    def test_sample_says_how_far_a_long_object_leans_and_nothing_for_a_square(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            for lean, box, want in ((30, (130, 60, 170, 340), 30), (-20, (130, 60, 170, 340), -20), (0, (130, 60, 170, 340), 0),
+                                    (0, (100, 150, 200, 250), None)):
+                photo = Path(folder) / f"lean{lean}-{box[0]}.png"
+                png(photo, 300, 400, box, (40, 40, 40), lean=lean)
+                out = json.loads(run("sample.py", str(photo)).stdout)
+                if want is None:
+                    self.assertIsNone(out["tilt"])
+                else:
+                    self.assertAlmostEqual(out["tilt"], want, delta=2.0)
+
+    def test_a_model_with_a_helix_and_its_own_look_renders(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            model = Path(folder) / "m.js"
+            model.write_text(
+                "Product3D.define('spring', function (THREE, kit) { var g = new THREE.Group();"
+                " g.add(new THREE.Mesh(kit.helix({ y0: 0, y1: 2, turns: 6, bar: 0.05, radius: function (y, t) { return 0.4 + 0.1 * t; } }),"
+                " kit.metal('#c9cdd2'))); g.userData.look = { toneMapping: 'agx', environment: 1.1 }; return g; });")
+            done = run("review.py", str(model), "--out", folder + "/r.png")
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertGreater(json.loads(done.stdout)["triangles"], 1000)
+
+    def test_the_viewer_hides_its_button_for_a_model_that_does_not_move_even_on_a_btn_class(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            done = run("export.py", str(EXAMPLE), "--out", folder)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            still = Path(folder) / "still.js"
+            still.write_text("Product3D.define('still', function (THREE, kit) { var g = new THREE.Group();"
+                             " g.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), kit.plastic('#888'))); return g; });")
+            page = Path(folder) / "page.html"
+            page.write_text(
+                '<!doctype html><style>.btn{display:inline-block}</style>'
+                '<figure class="p3d" style="width:300px;height:300px"><div class="p3d-stage" style="width:300px;height:300px"></div>'
+                '<button class="btn p3d-btn">Rodyti 3D</button></figure><pre id="p3d-info"></pre>'
+                f'<script src="{(Path(folder) / "pedal-bin.js").as_uri()}"></script><script src="{still.as_uri()}"></script>'
+                "<script>var f=document.querySelector('.p3d');try{Product3D.mount(f,'still');"
+                "document.getElementById('p3d-info').textContent=getComputedStyle(f.querySelector('.p3d-btn')).display}"
+                "catch(e){document.getElementById('p3d-info').textContent='error '+e}</script>")
+            self.assertIn('<pre id="p3d-info">none</pre>', chrome.dump_dom(page))
 
     def test_sample_measures_box_fill_aspect_and_colours(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
