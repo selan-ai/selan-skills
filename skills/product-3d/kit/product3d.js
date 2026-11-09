@@ -275,7 +275,7 @@
     renderer.toneMapping = T[TONE[o.toneMapping || look.toneMapping || 'aces']] || T.ACESFilmicToneMapping;
     renderer.toneMappingExposure = o.exposure || look.exposure || 1;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = T.PCFSoftShadowMap;
+    renderer.shadowMap.type = T.PCFShadowMap; // r187 dropped PCFSoftShadowMap and falls back to this anyway
     var scene = new T.Scene();
     if (o.background) scene.background = new T.Color(o.background);
     var pmrem = new T.PMREMGenerator(renderer);

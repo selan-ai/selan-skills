@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import glob
+import http.server
 import os
 import shutil
 import subprocess
 import tempfile
+import threading
+import urllib.parse
 from pathlib import Path
 
 TIMEOUT = 180
@@ -32,7 +35,7 @@ PLAYWRIGHT = [
 # WebGL without a GPU (SwiftShader), and file:// pages that may read the photo's pixels.
 FLAGS = [
     "--headless=new", "--no-first-run", "--no-sandbox", "--hide-scrollbars", "--mute-audio", "--disable-dev-shm-usage",
-    "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--allow-file-access-from-files",
+    "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--allow-file-access-from-files", "--disable-extensions",
 ]
 
 MISSING = "no Chrome or Chromium found (Google Chrome, Chromium, Edge or Playwright's Chromium); install one"
@@ -69,6 +72,51 @@ def _run(args: list[str], budget_ms: int) -> subprocess.CompletedProcess:
             return subprocess.run(command, capture_output=True, timeout=TIMEOUT, check=False, text=True)
         except subprocess.TimeoutExpired as error:
             raise ChromeError(f"Chrome did not finish in {TIMEOUT} s") from error
+
+
+def collect(page: Path, timeout_s: int = TIMEOUT) -> bytes:
+    """Opens `page` and waits, in real time, for it to POST its result to the address in its #hash, in parts
+    (`?part=i&of=n`: one large body from a busy page fails to send, 1 MB parts do); answers the parts joined.
+    For work that --dump-dom's virtual time does not wait for, such as canvases encoded to images."""
+    chrome = find()
+    if not chrome:
+        raise ChromeError(MISSING)
+    parts: dict = {}
+    expected: list = []
+    done = threading.Event()
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802 (http.server's name)
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            self.send_response(204)
+            self.end_headers()
+            index, total = int(query.get("part", ["0"])[0]), int(query.get("of", ["1"])[0])
+            parts[index] = body
+            expected[:] = [total]
+            if len(parts) == total:
+                done.set()
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"{page.resolve().as_uri()}#http://127.0.0.1:{server.server_address[1]}/result"
+    with tempfile.TemporaryDirectory() as profile:
+        process = subprocess.Popen([chrome, *FLAGS, f"--user-data-dir={profile}", url],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            if not done.wait(timeout_s):
+                raise ChromeError(f"the page sent no result in {timeout_s} s")
+        finally:
+            process.terminate()
+            try:
+                process.wait(10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+            server.shutdown()
+    return b"".join(parts[index] for index in range(expected[0]))
 
 
 def dump_dom(page: Path, budget_ms: int = 15000) -> str:

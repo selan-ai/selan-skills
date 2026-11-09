@@ -274,6 +274,21 @@ class ChromeTests(unittest.TestCase):
             self.assertIn(out["arkit"], ("ok", None))
             self.assertTrue(Path(out["check"]).is_file())
 
+    def test_ar_waits_for_textures_that_the_exporters_encode_asynchronously(self) -> None:
+        # a canvas texture is encoded with canvas.toBlob, which --dump-dom's virtual time does not wait for
+        with tempfile.TemporaryDirectory() as folder:
+            model = Path(folder) / "m.js"
+            model.write_text(
+                "Product3D.define('label', function (THREE, kit) { var c = document.createElement('canvas'); c.width = c.height = 64;"
+                " var g = c.getContext('2d'); g.fillStyle = '#c33'; g.fillRect(0, 0, 64, 64); var t = new THREE.CanvasTexture(c);"
+                " var root = new THREE.Group(); root.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1),"
+                " new THREE.MeshStandardMaterial({ map: t }))); root.userData.metres = 0.1; return root; });")
+            done = run("ar.py", str(model), "--out", folder)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            out = json.loads(done.stdout)
+            self.assertTrue(any(name.startswith("textures/") for name in out["usdz_check"]["files"]))
+            self.assertIn(out["arkit"], ("ok", None))
+
     def test_ar_without_a_size_in_metres_exits_2_and_says_how_to_give_one(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             model = Path(folder) / "m.js"
