@@ -124,6 +124,8 @@ Build, `check.py`, then full-page screenshots at 1440 and at 390 with real mobil
 - The hero text reads clearly on its photo; the photo's subject is not hidden behind the text.
 - Every section starts on the same left edge; no gap bigger than one section's padding; no empty block, broken image
   or map that did not load.
+- The last section before the footer keeps a full section's padding below it (buttons and map never touch the
+  footer); `qa_shots.js` measures it and exits 1 when the gap is smaller.
 - No heading wraps into a lone word; no card text cut off; buttons readable.
 - No placeholder, preview note, masked contact, photo credit or internal remark visible.
 - Header on a phone: logo, phone pill, then the menu row; it does not cover the content.
