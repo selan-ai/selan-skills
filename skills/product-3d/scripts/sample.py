@@ -3,8 +3,9 @@
     python3 sample.py photo.jpg [--point name:X,Y ...]
 
 `box` is the object's box in px (pixels that differ from the border's colour; null on a busy background),
-`fill` its height over the photo's, `aspect` its height over its width, `points` the average colour of a
-5x5 patch at each point. Exit 2: a wrong argument. Exit 1: Chrome failed.
+`fill` its height over the photo's, `aspect` its height over its width, `tilt` how many degrees its long axis
+leans from vertical (+ when the top leans right; null for a round or squat object): give it to review.py as
+--roll. `points` is the average colour of a 5x5 patch at each point. Exit 2: a wrong argument. Exit 1: Chrome failed.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from review import numbers
 
 CALL = (
     "var im=document.getElementById('p3d-ref'),b=Product3D.photoBox(im),o={width:im.naturalWidth,height:im.naturalHeight,"
-    "box:b.box,background:'#'+b.background.map(function(v){return('0'+v.toString(16)).slice(-2)}).join('')};"
+    "box:b.box,tilt:b.tilt,background:'#'+b.background.map(function(v){return('0'+v.toString(16)).slice(-2)}).join('')};"
     "if(b.box){o.fill=Math.round((b.box[3]-b.box[1])/im.naturalHeight*1000)/1000;"
     "o.aspect=Math.round((b.box[3]-b.box[1])/(b.box[2]-b.box[0])*1000)/1000;}"
     "o.points=Product3D.samplePhoto(im,POINTS,2);o.errors=__p3dErrors;"

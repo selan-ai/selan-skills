@@ -25,7 +25,8 @@ python3 ${CLAUDE_SKILL_DIR}/scripts/sample.py photo.jpg --point lid:230,340 --po
 ```
 
 It prints one JSON line: `box` (the object's pixels), `fill` and `aspect` (its height over the photo's, and over
-its own width), and the colour at each point. Then look at the photo and write down, before any code:
+its own width), `tilt` (how far a long object leans from vertical: a product shot at a slant), and the colour at
+each point. Then look at the photo and write down, before any code:
 
 - the parts, big to small: the main masses, the parts on them, the printed marks; which ones move (lid, door,
   pedal, drawer) and where each one's hinge is;
@@ -58,6 +59,8 @@ corners and two moving parts: [references/example-pedal-bin.js](references/examp
 ```bash
 python3 ${CLAUDE_SKILL_DIR}/scripts/review.py model.js --reference photo.jpg --yaw 22 --elevation 15 --out review.png
 ```
+
+A product shot at a slant: add `--roll <tilt>` with the `tilt` from step 2, and the render leans with it.
 
 Read the PNG. Top row: the photo, the render at 50% over it, the render alone, from the photo's camera and
 fitted to the object's box. Bottom row: turned 90°, 180° and 270°, and opened. Exit 1 prints `errors` (a

@@ -1,10 +1,12 @@
 """Renders a model next to its reference photo, so the agent can compare them, and prints one JSON line.
 
-    python3 review.py model.js [--reference photo.jpg] [--yaw 22] [--elevation 15] [--fov 26]
+    python3 review.py model.js [--reference photo.jpg] [--yaw 22] [--elevation 15] [--roll 0] [--fov 26]
                                [--box X0,Y0,X1,Y1] [--sample name:X,Y ...] [--out sheet.png]
 
 The sheet: the photo; the render over the photo at 50%; the render alone, from the photo's camera and fitted to
-the object's box in the photo; then the model turned 90, 180 and 270 degrees, and opened when it has moving parts.
+the object's box in the photo (no floor shadow, as the photo has none); then the model turned 90, 180 and 270
+degrees, and opened when it has moving parts. `tilt` in the output is how far the object in the photo leans from
+vertical: pass it as --roll so the render leans the same way.
 Exit 2: a wrong argument. Exit 1: the model threw, or Chrome failed; `errors` says what.
 """
 
@@ -45,6 +47,7 @@ def parse(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--reference", type=Path)
     parser.add_argument("--yaw", type=float, default=0.0, help="degrees; + turns the camera toward the model's +X side")
     parser.add_argument("--elevation", type=float, default=10.0, help="degrees above the horizon")
+    parser.add_argument("--roll", type=float, default=0.0, help="degrees the picture leans, + top to the right: the photo's tilt")
     parser.add_argument("--fov", type=float, default=26.0, help="vertical field of view, degrees")
     parser.add_argument("--box", help="X0,Y0,X1,Y1: the object's box in the photo, px; found by itself on a plain background")
     parser.add_argument("--sample", action="append", default=[], help="name:X,Y: the photo's colour there, in the output")
@@ -54,6 +57,8 @@ def parse(argv: list[str]) -> argparse.Namespace:
         raise InputError("yaw: -180 to 180 degrees")
     if not -20 <= args.elevation <= 85:
         raise InputError("elevation: -20 to 85 degrees")
+    if not -90 <= args.roll <= 90:
+        raise InputError("roll: -90 to 90 degrees")
     if not 10 <= args.fov <= 80:
         raise InputError("fov: 10 to 80 degrees")
     if args.box and not args.reference:
@@ -79,7 +84,7 @@ def main(argv: list[str]) -> int:
         print(f"input: {error}", file=sys.stderr)
         return 2
 
-    options = {"model": name, "yaw": args.yaw, "elevation": args.elevation, "fov": args.fov, "panel": PANEL,
+    options = {"model": name, "yaw": args.yaw, "elevation": args.elevation, "roll": args.roll, "fov": args.fov, "panel": PANEL,
                "box": box, "samples": samples or None}
     body = '<div class="row" id="p3d-row1"></div><div class="row" id="p3d-row2"></div>'
     if reference:

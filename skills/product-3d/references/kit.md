@@ -11,7 +11,8 @@ body's width is 1.
 | `kit.shoulder(y0, rise, inset, w, d, r, steps)` | the rings of a rounded shoulder (a quarter ellipse): append them to a loft's rings to round its top edge into the top |
 | `kit.roundedRect(w, d, r, seg)` | the `[x, z]` points of one ring |
 | `kit.roundedSlab(w, d, h, r)` | a rounded box with bevelled edges, centred on the origin: pedals, buttons, panels, flaps |
-| `kit.lathe([[radius, y], ...], segments)` | a turned profile, bottom to top: bottles, cups, knobs, screws, anchors |
+| `kit.lathe([[radius, y], ...], segments)` | a turned profile, bottom to top: bottles, cups, knobs, screws, anchors. Sample a long profile every ~0.1 units, or a texture stretches along its long segments |
+| `kit.helix({y0, y1, turns, radius, bar, phase})` | a bar wound round the Y axis: screw flights, springs, coils. `radius` is a number or `radius(y, t)`, so it can follow a taper and fade into the shaft at both ends (`t` 0..1 along the bar) |
 | `kit.wall({w, d, r})` | the surface of a loft whose rings are `w(y)`, `d(y)`, `r(y)` functions. `.at(s, y)` is the point and outward normal at perimeter distance `s` (0 = front centre, + toward +X, − toward −X) and height `y`; `.side(z, y)` is the `s` of a point on the +X side at depth `z`; `.corner(y)` the `s` of the front corner's middle |
 | `kit.decal(wall, shapes, material, lift)` | flat shapes drawn in `(s, y)` and laid on the wall, bending round its corners: printed marks, labels, painted bands, outlines of recesses. `lift` (default 0.004) holds it off the surface |
 | `kit.refine(geometry, maxEdge)` | splits triangles until no edge is longer than `maxEdge`; `decal` does it for you |
@@ -30,6 +31,11 @@ On a flat face, `new THREE.Mesh(new THREE.ShapeGeometry(shape, 24), material)` t
 | `kit.paint(color, {roughness})` | printed and painted marks; drawn over the surface it sits on |
 | `kit.dark(color)` | holes, slots and cavities: unlit near-black, reads as depth |
 
+The studio look comes from the model: `root.userData.look = { toneMapping, exposure, environment }`. The
+default tone mapping, `'aces'`, pushes saturated reds and oranges toward pink; `'agx'` keeps them, and
+`'neutral'` keeps colours closest to their values. `environment` (default 0.75) is how much the studio's light
+reflects: raise it for bright metal. A material's own `envMapIntensity` does the same for one material.
+
 ## Moving parts
 
 A moving part is a `THREE.Group` placed at its hinge, with the part's meshes inside it offset from the hinge.
@@ -38,6 +44,13 @@ button and a click on the model play it, and the review renders it at 1.
 
 ## Traps, each seen once
 
+- **A photo shot at a slant:** `sample.py` prints its `tilt`; pass it to `review.py` as `--roll` and the render
+  leans the same way, so the overlay still lines up. Never rotate the photo instead: the review then compares the
+  model with a picture nobody took.
+- **Custom curves are classes:** `class Flight extends THREE.Curve { getPoint(t, target) { ... } }`. The
+  `Curve.call(this)` prototype pattern throws `Class constructor cannot be invoked without 'new'`.
+- **Thin bars glow:** a helix or wire in the same bright metal as a broad face reads white; give it a step
+  darker colour and a lower `envMapIntensity`.
 - **Decide the camera before the shape.** A wrong `--elevation` makes a right lid look too tall or too flat, and
   you end up fixing a shape that was never wrong. Line up the overlay's outline first.
 - **A top that rises toward the back** (a lid, a head) is the flat loft sheared after building: add

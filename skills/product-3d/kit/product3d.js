@@ -104,6 +104,20 @@
     return new T.LatheGeometry(profile.map(function (p) { return new T.Vector2(p[0], p[1]); }), segments || 64);
   }
 
+  // A bar wound round the Y axis: screw flights, springs, coils, threads. o = { y0, y1, turns, radius, bar, phase }:
+  // `radius` is the bar's centre distance from the axis, a number or radius(y, t) with t 0..1 along the bar (so it
+  // can follow a taper or fade into a shaft at its ends), `bar` the bar's own radius, `phase` the start angle.
+  function helix(o) {
+    var radius = typeof o.radius === 'function' ? o.radius : function () { return o.radius; };
+    class Helix extends T.Curve {
+      getPoint(t, target) {
+        var y = o.y0 + (o.y1 - o.y0) * t, a = (o.phase || 0) + t * o.turns * Math.PI * 2, r = radius(y, t);
+        return (target || new T.Vector3()).set(Math.cos(a) * r, y, Math.sin(a) * r);
+      }
+    }
+    return new T.TubeGeometry(new Helix(), Math.max(64, Math.ceil(o.turns * 110)), o.bar, 12, false);
+  }
+
   // A wall made by loft(): w(y), d(y), r(y) functions. at(s, y) is the surface point and outward normal at
   // perimeter distance s (0 = front centre, + toward +X, negative mirrors to -X) and height y; wrap() lays a
   // flat (s, y) shape onto it, which is how printed marks, labels and recesses follow corners.
@@ -250,18 +264,23 @@
 
   // ---------------------------------------------------------------- stage and camera
 
+  var TONE = { aces: 'ACESFilmicToneMapping', agx: 'AgXToneMapping', neutral: 'NeutralToneMapping' };
+
+  // The model may set root.userData.look = { toneMapping: 'aces' | 'agx' | 'neutral', exposure, environment }:
+  // 'agx' or 'neutral' keep saturated reds and oranges that ACES pushes toward pink. `o` (the caller) wins over it.
   function stage(renderer, model, o) {
     o = o || {};
+    var look = (model.userData && model.userData.look) || {};
     renderer.outputColorSpace = T.SRGBColorSpace;
-    renderer.toneMapping = T.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = o.exposure || 1;
+    renderer.toneMapping = T[TONE[o.toneMapping || look.toneMapping || 'aces']] || T.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = o.exposure || look.exposure || 1;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = T.PCFSoftShadowMap;
     var scene = new T.Scene();
     if (o.background) scene.background = new T.Color(o.background);
     var pmrem = new T.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new T.RoomEnvironment(), 0.04).texture;
-    scene.environmentIntensity = o.environment === undefined ? 0.75 : o.environment;
+    scene.environmentIntensity = o.environment !== undefined ? o.environment : look.environment !== undefined ? look.environment : 0.75;
     scene.add(model);
     model.updateMatrixWorld(true);
     var box = new T.Box3().setFromObject(model);
@@ -289,11 +308,14 @@
     grad.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, 128, 128);
+    if (o.shadow === false) return { scene: scene, box: box }; // a review view matched to a photo has no floor
     var foot = Math.max(size.x, size.z) * 1.8;
+    var cx = (box.min.x + box.max.x) / 2, cz = (box.min.z + box.max.z) / 2;
     var shadow = new T.Mesh(new T.PlaneGeometry(foot, foot).rotateX(-Math.PI / 2),
       new T.MeshBasicMaterial({ map: new T.CanvasTexture(cv), transparent: true, depthWrite: false }));
-    shadow.position.set((box.min.x + box.max.x) / 2, box.min.y + 0.002, (box.min.z + box.max.z) / 2);
+    shadow.position.set(cx, box.min.y + 0.002, cz);
     scene.add(shadow);
+    // No floor catching the key light's shadow: from this light a tall object casts a long, cut-off one.
     return { scene: scene, box: box };
   }
 
@@ -326,12 +348,14 @@
     var box = new T.Box3().setFromObject(model);
     var target = box.getCenter(new T.Vector3());
     var az = T.MathUtils.degToRad(o.yaw || 0), el = T.MathUtils.degToRad(o.elevation || 0);
+    var roll = T.MathUtils.degToRad(o.roll || 0);
     var want = o.box ? (o.box[3] - o.box[1]) / h : (o.fill || 0.72);
     var dist = box.getSize(new T.Vector3()).length() * 1.5;
     function place() {
       camera.position.set(target.x + Math.sin(az) * Math.cos(el) * dist, target.y + Math.sin(el) * dist,
         target.z + Math.cos(az) * Math.cos(el) * dist);
       camera.lookAt(target);
+      if (roll) camera.rotateZ(roll); // rolling the camera one way leans the picture the other
     }
     for (var i = 0; i < 4; i++) {
       place();
@@ -354,6 +378,9 @@
 
   // ---------------------------------------------------------------- viewer for a page or a deck
 
+  // `hidden` alone loses to any page rule that sets display on the element (a .btn or .chip class does)
+  function hide(el) { el.hidden = true; el.style.display = 'none'; }
+
   // <figure class="p3d" data-model data-press data-release data-label data-yaw data-elevation>
   //   <div class="p3d-stage">poster img</div> ... <button class="p3d-btn"> ... </figure>
   function mount(fig, name) {
@@ -373,9 +400,12 @@
     controls.enableDamping = true;
     controls.minPolarAngle = T.MathUtils.degToRad(50);
     controls.maxPolarAngle = T.MathUtils.degToRad(90);
-    controls.autoRotate = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var turn = !window.matchMedia('(prefers-reduced-motion: reduce)').matches, idle = 0;
+    controls.autoRotate = turn;
     controls.autoRotateSpeed = 1.5;
-    controls.addEventListener('start', function () { controls.autoRotate = false; });
+    // a drag stops the turntable; it starts again after 6 s left alone
+    controls.addEventListener('start', function () { controls.autoRotate = false; idle = -1; });
+    controls.addEventListener('end', function () { idle = turn ? 6 : -1; });
     canvas.style.touchAction = 'pan-y'; // a vertical swipe still scrolls the page
     var runtime = model.userData.runtime;
     var want = 0, t = 0;
@@ -394,7 +424,7 @@
           setWant(want ? 0 : 1);
           if (e.detail > 0) btn.blur(); // in a deck, Space must keep moving to the next slide
         });
-      } else btn.hidden = true;
+      } else hide(btn);
     }
     if (runtime && runtime.setOpen) {
       var down = null;
@@ -432,6 +462,7 @@
         t += Math.sign(want - t) * Math.min(Math.abs(want - t), dt * 2.5);
         runtime.setOpen(t);
       }
+      if (idle > 0 && (idle -= dt) <= 0) controls.autoRotate = true;
       controls.update(dt);
       renderer.render(st.scene, camera);
       raf = requestAnimationFrame(tick);
@@ -460,14 +491,28 @@
     var bg = [0, 1, 2].map(function (c) { var v = border.map(function (p) { return p[c]; }).sort(function (a, b) { return a - b; }); return v[v.length >> 1]; });
     var spread = border.filter(function (p) { return Math.abs(p[0] - bg[0]) + Math.abs(p[1] - bg[1]) + Math.abs(p[2] - bg[2]) > 60; }).length / border.length;
     if (spread > 0.25) return { box: null, background: bg };
-    var x0 = w, y0 = h, x1 = -1, y1 = -1;
+    var x0 = w, y0 = h, x1 = -1, y1 = -1, n = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
     for (var yy = 0; yy < h; yy += 2) for (var xx = 0; xx < w; xx += 2) {
       var p = px(xx, yy);
       if (Math.abs(p[0] - bg[0]) + Math.abs(p[1] - bg[1]) + Math.abs(p[2] - bg[2]) > 60) {
         if (xx < x0) x0 = xx; if (xx > x1) x1 = xx; if (yy < y0) y0 = yy; if (yy > y1) y1 = yy;
+        n++; sx += xx; sy += yy; sxx += xx * xx; syy += yy * yy; sxy += xx * yy;
       }
     }
-    return { box: x1 < 0 ? null : [x0, y0, x1, y1], background: bg };
+    // tilt: degrees the object's long axis leans from vertical, + when its top leans right; null when it has no
+    // long axis to speak of (round, or about as wide as tall)
+    var tilt = null;
+    if (n > 10) {
+      var mx = sx / n, my = sy / n, a = sxx / n - mx * mx, c = syy / n - my * my, b = sxy / n - mx * my;
+      var l1 = (a + c) / 2 + Math.sqrt(((a - c) / 2) * ((a - c) / 2) + b * b);
+      var l2 = (a + c) / 2 - Math.sqrt(((a - c) / 2) * ((a - c) / 2) + b * b);
+      if (l2 > 0 && l1 / l2 > 2.25) {
+        var theta = 0.5 * Math.atan2(2 * b, a - c) * 180 / Math.PI; // the long axis, from +x, image y down
+        tilt = Math.round((((theta + 180) % 180) - 90) * 10) / 10;
+        if (tilt === -90) tilt = 90;
+      }
+    }
+    return { box: x1 < 0 ? null : [x0, y0, x1, y1], background: bg, tilt: tilt };
   }
 
   function hex(rgb) { return '#' + rgb.map(function (v) { return ('0' + Math.round(v).toString(16)).slice(-2); }).join(''); }
@@ -505,7 +550,7 @@
       var rw = 600, rh = 800, box = o.box || null;
       if (refImg && refImg.naturalWidth) {
         rw = refImg.naturalWidth; rh = refImg.naturalHeight;
-        if (!box) { var pb = photoBox(refImg); box = pb.box; info.background = hex(pb.background); }
+        if (!box) { var pb = photoBox(refImg); box = pb.box; info.background = hex(pb.background); info.tilt = pb.tilt; }
         info.reference = { width: rw, height: rh, box: box };
       }
       var H = o.panel || 620, W = Math.round(H * rw / rh);
@@ -514,11 +559,12 @@
         r.setPixelRatio(1);
         r.setSize(w, h);
         if (model.userData.runtime && model.userData.runtime.setOpen) model.userData.runtime.setOpen(opts.open || 0);
-        var st = stage(r, model, { background: opts.alpha ? null : '#ffffff' });
+        var st = stage(r, model, { background: opts.alpha ? null : '#ffffff', shadow: !opts.matched });
         var cam = new T.PerspectiveCamera(o.fov || 26, w / h, 0.01, 1000);
         // the matched view is fitted in the photo's own pixels, then scaled to the panel
         var fitBox = opts.matched && box ? box.map(function (v, i) { return v * (i % 2 ? h / rh : w / rw); }) : null;
         frame(cam, model, { width: w, height: h, yaw: (o.yaw || 0) + (opts.turn || 0), elevation: o.elevation || 0,
+          roll: opts.matched ? o.roll || 0 : 0,
           box: fitBox, fill: opts.fill || (box ? (box[3] - box[1]) / rh : 0.72) });
         r.render(st.scene, cam);
         st.scene.remove(model);
@@ -537,7 +583,7 @@
         var ov = document.createElement('div'); ov.className = 'ov'; p2.appendChild(ov);
         view(ov, { matched: true, alpha: true }, W, H);
       }
-      view(panel(row1, 'render, yaw ' + (o.yaw || 0) + '°, elevation ' + (o.elevation || 0) + '°', W, H), { matched: true }, W, H);
+      view(panel(row1, 'render, yaw ' + (o.yaw || 0) + '°, elevation ' + (o.elevation || 0) + '°' + (o.roll ? ', roll ' + o.roll + '°' : ''), W, H), { matched: true }, W, H);
       var S = Math.round(H * 0.62);
       [90, 180, 270].forEach(function (turn) { view(panel(row2, '+' + turn + '°', S, S), { turn: turn, fill: 0.8 }, S, S); });
       if (info.moving) view(panel(row2, 'open (setOpen 1)', S, S), { open: 1, fill: 0.8 }, S, S);
@@ -549,7 +595,7 @@
   }
 
   var kit = {
-    roundedRect: roundedRect, loft: loft, shoulder: shoulder, roundedSlab: roundedSlab, lathe: lathe, wall: wall,
+    roundedRect: roundedRect, loft: loft, shoulder: shoulder, roundedSlab: roundedSlab, lathe: lathe, helix: helix, wall: wall,
     shapes: shapes, decal: decal, refine: refine, plastic: plastic, metal: metal, paint: paint, dark: dark,
   };
 

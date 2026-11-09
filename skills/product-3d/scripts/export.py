@@ -41,6 +41,7 @@ STYLE = """<style>
 .p3d-stage canvas { cursor: grab; }
 .p3d-stage canvas:active { cursor: grabbing; }
 .p3d figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 12px; }
+.p3d-btn[hidden] { display: none !important; }
 .p3d-hint { display: none; opacity: .7; font-size: .95em; }
 .p3d.is-live .p3d-hint { display: inline; }
 </style>"""
@@ -51,7 +52,8 @@ LOADER = """<script>
   var gl = document.createElement('canvas').getContext('webgl2');
   Array.prototype.forEach.call(figs, function (fig) {
     var btn = fig.querySelector('.p3d-btn');
-    if (!gl) { if (btn) btn.hidden = true; return; }
+    function hide(el) { el.hidden = true; el.style.display = 'none'; }
+    if (!gl) { if (btn) hide(btn); return; }
     function load() {
       if (btn) { btn.disabled = true; btn.textContent = fig.dataset.loading; }
       function go() { window.Product3D.mount(fig, fig.dataset.model); }
@@ -60,7 +62,7 @@ LOADER = """<script>
       s.src = fig.dataset.src;
       s.setAttribute('data-p3d', 'NAME');
       s.onload = go;
-      s.onerror = function () { if (btn) btn.hidden = true; };
+      s.onerror = function () { if (btn) hide(btn); };
       document.head.appendChild(s);
     }
     if (fig.dataset.load === 'near') {
