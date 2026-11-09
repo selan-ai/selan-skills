@@ -73,6 +73,7 @@ Product3D.define('pedal-bin', function (THREE, kit) {
   panel.position.set(0, 0.012, 0.33);
   flap.add(panel);
 
+  root.userData.metres = 0.3; // the body is about 30 cm wide
   root.userData.runtime = {
     setOpen: function (t) {
       var k = THREE.MathUtils.clamp(t, 0, 1);

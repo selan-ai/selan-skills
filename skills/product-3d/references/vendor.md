@@ -19,3 +19,23 @@ npx esbuild entry.js --bundle --minify --format=iife --target=es2020 --legal-com
 ```
 
 Then put the one-line header back on top, copy `node_modules/three/LICENSE` to `kit/three.LICENSE`, and run the tests.
+
+# kit/three-export.min.js
+
+three.js's own `GLTFExporter`, `USDZExporter` and `GLTFLoader` (MIT, the same release), added to the `window.THREE`
+that `three.min.js` set, for `ar.py` only: pages never load it. About 110 KB. Built in the same folder, with
+`three` pointed at that global so the library is not bundled twice:
+
+```sh
+echo 'module.exports = globalThis.THREE;' > three-global.cjs
+cat > export-entry.js <<'JS'
+import { GLTFExporter } from './node_modules/three/examples/jsm/exporters/GLTFExporter.js';
+import { USDZExporter } from './node_modules/three/examples/jsm/exporters/USDZExporter.js';
+import { GLTFLoader } from './node_modules/three/examples/jsm/loaders/GLTFLoader.js';
+Object.assign(globalThis.THREE, { GLTFExporter, USDZExporter, GLTFLoader });
+JS
+npx esbuild export-entry.js --bundle --minify --format=iife --target=es2020 --legal-comments=none \
+  --alias:three=./three-global.cjs --outfile=three-export.min.js
+```
+
+Check it holds no second copy of the library: `grep -c WebGLRenderer three-export.min.js` prints 0.

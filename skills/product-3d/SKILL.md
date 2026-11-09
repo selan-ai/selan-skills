@@ -1,7 +1,7 @@
 ---
 name: product-3d
-description: Rebuilds a physical product from one photo as a turnable 3D model written in code (Three.js), checks it against the photo, and packs it for a web page or a slide deck, where it loads only when needed and also works offline. Use when someone wants a product, part or object from a photo shown in 3D, to turn on a website or in a presentation. Do not use for people, animals, plants, food, fabric, glass, rooms or scenes, or when exact dimensions matter (ask for the CAD file instead).
-allowed-tools: Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/sample.py *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/review.py *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/export.py *)
+description: Rebuilds a physical product from one photo as a turnable 3D model written in code (Three.js), checks it against the photo, and packs it for a web page or a slide deck, where it loads only when needed and also works offline, with GLB and USDZ files to view it in AR on a phone. Use when someone wants a product, part or object from a photo shown in 3D, to turn on a website or in a presentation. Do not use for people, animals, plants, food, fabric, glass, rooms or scenes, or when exact dimensions matter (ask for the CAD file instead).
+allowed-tools: Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/sample.py *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/review.py *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/export.py *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/ar.py *)
 ---
 
 # Product in 3D
@@ -48,7 +48,8 @@ Product3D.define('acme-bin', function (THREE, kit) {
 });
 ```
 
-Y up, the front faces +Z, the object's own right is +X, the floor is y = 0. Each moving part is a `Group` whose
+Y up, the front faces +Z, the object's own right is +X, the floor is y = 0. Set `root.userData.metres` to one
+unit in metres (from the product's name, a datasheet or a known part), so AR shows it at its real size. Each moving part is a `Group` whose
 origin is its hinge, and `setOpen(t)` turns them; leave `runtime` out when nothing moves. Printed marks are
 `kit.decal` with `kit.paint`, holes and cavities `kit.dark`. Every kit call and the traps they avoid:
 [references/kit.md](references/kit.md). A worked model with a tapered body, a sloped lid, a band round the
@@ -82,6 +83,12 @@ style and loader to paste where the model goes. The photo shows first. `--load c
 visitor presses the button (web pages: nothing extra loads with the page); `--load near` loads it as the figure
 comes near the screen (slide decks; it works from a deck opened from disk). Give the button the page's own button
 class. `--lang en` for English words.
+
+`--ar` also writes `<name>.glb` and `<name>.usdz` (with `ar.py`, which checks both: the GLB read back, the USDZ by
+`usdchecker --arkit` where it is installed, as on every Mac) and adds a "view in your space" link. It shows only on
+an iPhone or iPad (AR Quick Look) and on Android (Scene Viewer, which needs the page on a public https address).
+Serve `.usdz` as `model/vnd.usdz+zip`. The USDZ is text and runs to several MB: keep a model meant for AR under
+about 30 000 triangles.
 
 ## 6. Hand it over
 
