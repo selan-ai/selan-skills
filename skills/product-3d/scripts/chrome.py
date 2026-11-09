@@ -31,7 +31,7 @@ PLAYWRIGHT = [
 
 # WebGL without a GPU (SwiftShader), and file:// pages that may read the photo's pixels.
 FLAGS = [
-    "--headless=new", "--no-first-run", "--no-sandbox", "--hide-scrollbars", "--mute-audio",
+    "--headless=new", "--no-first-run", "--no-sandbox", "--hide-scrollbars", "--mute-audio", "--disable-dev-shm-usage",
     "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--allow-file-access-from-files",
 ]
 
