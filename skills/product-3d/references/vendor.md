@@ -39,3 +39,14 @@ npx esbuild export-entry.js --bundle --minify --format=iife --target=es2020 --le
 ```
 
 Check it holds no second copy of the library: `grep -c WebGLRenderer three-export.min.js` prints 0.
+
+# kit/qrcodegen.min.js
+
+Project Nayuki's QR Code generator library (MIT; its notice is the file's first line), the TypeScript version at
+github.com/nayuki/QR-Code-generator `bcfe1b018cec`, `typescript-javascript/qrcodegen.ts`, compiled once to a classic
+script that sets `window.qrcodegen` (12 KB). The export puts it in a snippet with AR, for the QR code a computer
+shows:
+
+```sh
+npx esbuild qrcodegen.ts --minify --target=es2020 > qr.min.js   # then the notice line on top
+```

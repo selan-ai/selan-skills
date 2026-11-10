@@ -166,7 +166,12 @@ class ArFileTests(unittest.TestCase):
         self.assertIn('alt="Žiūrėti savo erdvėje"', link)
         self.assertIn("scene-viewer", markup)
         self.assertIn("/iPad|iPhone|iPod/.test(navigator.userAgent)", markup)  # Chrome on iOS too, not only Safari
-        self.assertNotIn("p3d-ar", export.snippet("x", "x.js", None, "Bin", export.WORDS["lt"], export.Load.CLICK).split("<style>")[0])
+        self.assertIn('width="', link)  # check.py and layout shift want an img's size
+        self.assertIn('<div class="p3d-qr" hidden>', markup)
+        self.assertIn("qrcodegen", markup)
+        plain = export.snippet("x", "x.js", None, "Bin", export.WORDS["lt"], export.Load.CLICK)
+        self.assertNotIn("p3d-ar", plain.split("<style>")[0])
+        self.assertNotIn("Project Nayuki", plain)  # no AR, no QR code, no 12 KB encoder
 
 
 class ReviewArgumentTests(unittest.TestCase):
@@ -274,6 +279,19 @@ class ChromeTests(unittest.TestCase):
             self.assertAlmostEqual(out["size_m"][1], 0.6, delta=0.05)  # 2 units tall at 0.3 m a unit
             self.assertIn(out["arkit"], ("ok", None))
             self.assertTrue(Path(out["check"]).is_file())
+
+    def test_a_computer_gets_a_qr_code_of_the_page_where_a_phone_gets_the_ar_link(self) -> None:
+        markup = export.snippet("x", "x.js", None, "Bin", export.WORDS["en"], export.Load.CLICK, {"glb": "x.glb", "usdz": "x.usdz"})
+        with tempfile.TemporaryDirectory() as folder:
+            page = Path(folder) / "page.html"
+            page.write_text('<!doctype html><section id="product-3d">' + markup + '</section>'
+                            "<pre id=\"p3d-info\"></pre><script>var q=document.querySelector('.p3d-qr'),a=document.querySelector('.p3d-ar');"
+                            "document.getElementById('p3d-info').textContent=JSON.stringify({qr:!q.hidden,ar:!a.hidden,"
+                            "path:(q.querySelector('path')||{}).getAttribute?q.querySelector('path').getAttribute('d').length:0})</script>")
+            dom = chrome.dump_dom(page)
+        info = json.loads(dom[dom.index('<pre id="p3d-info">') + 19:dom.index("</pre>", dom.index('<pre id="p3d-info">'))])
+        self.assertEqual((info["qr"], info["ar"]), (True, False))  # headless Chrome is a computer
+        self.assertGreater(info["path"], 1000)
 
     def test_ar_waits_for_textures_that_the_exporters_encode_asynchronously(self) -> None:
         # a canvas texture is encoded with canvas.toBlob, which --dump-dom's virtual time does not wait for
