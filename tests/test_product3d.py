@@ -165,6 +165,7 @@ class ArFileTests(unittest.TestCase):
         self.assertEqual(link.count("<"), 3)  # <a>, its one <img>, </a>: what Quick Look asks for
         self.assertIn('alt="Žiūrėti savo erdvėje"', link)
         self.assertIn("scene-viewer", markup)
+        self.assertIn("/iPad|iPhone|iPod/.test(navigator.userAgent)", markup)  # Chrome on iOS too, not only Safari
         self.assertNotIn("p3d-ar", export.snippet("x", "x.js", None, "Bin", export.WORDS["lt"], export.Load.CLICK).split("<style>")[0])
 
 

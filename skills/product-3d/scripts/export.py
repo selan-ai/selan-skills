@@ -6,8 +6,8 @@ DIR/<name>.js is three.js, the kit and the model as one classic script (about 20
 web server and from file:// (a deck opened from disk) alike. DIR/<name>.html is the markup, style and loader to
 paste where the model goes: the poster photo shows first, the script loads on a click (`click`, for web pages)
 or when the figure comes near the screen (`near`, for decks). With --ar it also writes the AR files (ar.py) and
-the snippet gets a "view in your space" link, shown only on an iPhone or iPad (AR Quick Look, the USDZ) and on
-Android (Scene Viewer, the GLB, which needs the page on a public https address). Exit 2: a wrong argument.
+the snippet gets a "view in your space" link, shown only on an iPhone or iPad, in any browser (AR Quick Look, the
+USDZ), and on Android (Scene Viewer, the GLB, which needs the page on a public https address). Exit 2: a wrong argument.
 Exit 1: the AR export failed.
 """
 
@@ -64,7 +64,11 @@ LOADER = """<script>
     var ar = fig.querySelector('.p3d-ar');
     if (ar) {
       var a = document.createElement('a');
-      if (a.relList && a.relList.supports && a.relList.supports('ar')) ar.hidden = false;
+      // Safari says it supports rel="ar"; Chrome and the other iOS browsers do not, but open a .usdz link in AR
+      // Quick Look all the same (seen on an iPhone 17 Pro in Chrome), so every iPhone and iPad gets the link; an
+      // iPad may call itself a Mac, with touch
+      var ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+      if ((a.relList && a.relList.supports && a.relList.supports('ar')) || ios) ar.hidden = false;
       else if (/Android/i.test(navigator.userAgent)) {
         var glb = new URL(ar.dataset.glb, location.href).href;
         ar.removeAttribute('rel');
