@@ -86,7 +86,7 @@ class. `--lang en` for English words.
 
 `--ar` also writes `<name>.glb` and `<name>.usdz` (with `ar.py`, which checks both: the GLB read back, the USDZ by
 `usdchecker --arkit` where it is installed, as on every Mac) and adds a "view in your space" link. It shows only on
-an iPhone or iPad (AR Quick Look) and on Android (Scene Viewer, which needs the page on a public https address).
+an iPhone or iPad in any browser (AR Quick Look) and on Android (Scene Viewer, which needs the page on a public https address).
 Serve `.usdz` as `model/vnd.usdz+zip`. The USDZ is text and runs to several MB: keep a model meant for AR under
 about 30 000 triangles.
 
