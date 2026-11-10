@@ -7,7 +7,8 @@ web server and from file:// (a deck opened from disk) alike. DIR/<name>.html is 
 paste where the model goes: the poster photo shows first, the script loads on a click (`click`, for web pages)
 or when the figure comes near the screen (`near`, for decks). With --ar it also writes the AR files (ar.py) and
 the snippet gets a "view in your space" link, shown only on an iPhone or iPad, in any browser (AR Quick Look, the
-USDZ), and on Android (Scene Viewer, the GLB, which needs the page on a public https address). Exit 2: a wrong argument.
+USDZ), and on Android (Scene Viewer, the GLB, which needs the page on a public https address). On a computer it
+shows instead a QR code of the page's own address, drawn in the browser, so a phone opens the same model there. Exit 2: a wrong argument.
 Exit 1: the AR export failed.
 """
 
@@ -24,7 +25,9 @@ from pathlib import Path
 
 import ar
 import chrome
-from common import PRODUCT3D, THREE, InputError, image, model_name
+from common import KIT, PRODUCT3D, THREE, InputError, image, model_name
+
+QRCODEGEN = KIT / "qrcodegen.min.js"
 
 
 class Load(str, Enum):
@@ -34,9 +37,11 @@ class Load(str, Enum):
 
 WORDS = {
     "lt": {"show": "Rodyti 3D", "loading": "Kraunamas 3D modelis", "open": "Atidaryti", "close": "Uždaryti",
-           "hint": "Tempkite, kad pasuktumėte.", "ar": "Žiūrėti savo erdvėje"},
+           "hint": "Tempkite, kad pasuktumėte.", "ar": "Žiūrėti savo erdvėje",
+           "qr": "Telefone nuskenuokite kodą: modelis atsiras šalia jūsų tikru dydžiu."},
     "en": {"show": "Show in 3D", "loading": "Loading the 3D model", "open": "Open", "close": "Close",
-           "hint": "Drag to turn it.", "ar": "View in your space"},
+           "hint": "Drag to turn it.", "ar": "View in your space",
+           "qr": "Scan the code with your phone: the model appears beside you at its real size."},
 }
 
 STYLE = """<style>
@@ -50,6 +55,11 @@ STYLE = """<style>
 .p3d-btn[hidden], .p3d-ar[hidden] { display: none !important; }
 .p3d-ar { display: inline-flex; line-height: 0; }
 .p3d-ar img { height: 44px; width: auto; }
+.p3d-qr { display: flex; align-items: center; gap: 16px; margin-top: 16px; }
+.p3d-qr[hidden] { display: none; }
+.p3d-qr-code { flex: none; display: block; width: 136px; height: 136px; border-radius: 12px; overflow: hidden; box-shadow: 0 6px 18px -10px rgba(0,0,0,.35); }
+.p3d-qr-code svg { display: block; width: 100%; height: 100%; }
+.p3d-qr p { margin: 0; opacity: .75; font-size: .95em; max-width: 32ch; }
 .p3d-hint { display: none; opacity: .7; font-size: .95em; }
 .p3d.is-live .p3d-hint { display: inline; }
 </style>"""
@@ -78,6 +88,18 @@ LOADER = """<script>
         ar.hidden = false;
       }
     }
+    // on a computer, where the AR link stays hidden: a QR code of this page (and the figure's section), drawn here
+    // from location, so it is right wherever the page is served; 136 px, as smaller ones failed to scan
+    var qr = fig.querySelector('.p3d-qr');
+    if (qr && ar && ar.hidden && window.qrcodegen) {
+      var sec = fig.closest('section'), q = qrcodegen.QrCode;
+      var code = q.encodeText(location.origin + location.pathname + (sec && sec.id ? '#' + sec.id : ''), q.Ecc.MEDIUM), d = '';
+      for (var y = 0; y < code.size; y++) for (var x = 0; x < code.size; x++) if (code.getModule(x, y)) d += 'M' + (x + 2) + ',' + (y + 2) + 'h1v1h-1z';
+      var n = code.size + 4;
+      qr.querySelector('.p3d-qr-code').innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + n + ' ' + n
+        + '" shape-rendering="crispEdges"><rect width="' + n + '" height="' + n + '" fill="#fff"/><path d="' + d + '" fill="#111"/></svg>';
+      qr.hidden = false;
+    }
     function hide(el) { el.hidden = true; el.style.display = 'none'; }
     if (!gl) { if (btn) hide(btn); return; }
     function load() {
@@ -102,10 +124,14 @@ LOADER = """<script>
 </script>"""
 
 
+def badge_width(text: str) -> int:
+    return 56 + round(len(text) * 7.7)
+
+
 def ar_badge(text: str) -> str:
     """The AR link's picture, as a data: SVG. Quick Look wants the link's one child to be an <img>, so the words are
     drawn into it rather than written beside it."""
-    width = 56 + round(len(text) * 7.7)
+    width = badge_width(text)
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="44" viewBox="0 0 {width} 44">'
            f'<rect x="1" y="1" width="{width - 2}" height="42" rx="21" fill="#fff" stroke="#cfd3d1"/>'
            '<g fill="none" stroke="#1d2124" stroke-width="1.8" stroke-linejoin="round">'
@@ -130,9 +156,14 @@ def snippet(name: str, src: str, poster: str | None, label: str, words: dict, lo
         f'  <figcaption><button type="button" class="p3d-btn"{disabled}>{html.escape(first)}</button>'
         f'<span class="p3d-hint">{html.escape(words["hint"])}</span>'
         + (f'<a class="p3d-ar" rel="ar" href="{attr(ar_files["usdz"])}" data-glb="{attr(ar_files["glb"])}" hidden>'
-           f'<img src="{ar_badge(words["ar"])}" alt="{attr(words["ar"])}"></a>' if ar_files else "")
+           f'<img src="{ar_badge(words["ar"])}" width="{badge_width(words["ar"])}" height="44" alt="{attr(words["ar"])}"></a>'
+           if ar_files else "")
         + '</figcaption>\n'
-        "</figure>\n" + STYLE + "\n" + LOADER.replace("NAME", name) + "\n"
+        + (f'  <div class="p3d-qr" hidden><span class="p3d-qr-code" role="img" aria-label="QR"></span>'
+           f'<p>{html.escape(words["qr"])}</p></div>\n' if ar_files else "")
+        + "</figure>\n" + STYLE + "\n"
+        + ("<script>" + QRCODEGEN.read_text(encoding="utf-8") + "</script>\n" if ar_files else "")
+        + LOADER.replace("NAME", name) + "\n"
     )
 
 
