@@ -83,6 +83,19 @@ class ChromeFindTests(unittest.TestCase):
             with unittest.mock.patch.dict("os.environ", {"CHROME": str(named) + "-gone"}):
                 self.assertNotEqual(chrome.find(), str(named) + "-gone")
 
+    def test_playwrights_headless_shell_comes_before_its_full_chromium(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            shell = Path(folder) / "chromium_headless_shell-1243" / "chrome-headless-shell-linux64" / "chrome-headless-shell"
+            full = Path(folder) / "chromium-1243" / "chrome-linux64" / "chrome"
+            for one in (shell, full):
+                one.parent.mkdir(parents=True)
+                one.write_text("")
+            with unittest.mock.patch.dict("os.environ", {"PLAYWRIGHT_BROWSERS_PATH": folder, "CHROME": ""}), \
+                    unittest.mock.patch.object(chrome, "CHROMES", []), unittest.mock.patch.object(chrome, "PLAYWRIGHT", []):
+                self.assertEqual(chrome.find(), str(shell))
+                shell.unlink()
+                self.assertEqual(chrome.find(), str(full))
+
 
 class ExportTests(unittest.TestCase):
     def test_one_script_holds_three_then_the_kit_then_the_model(self) -> None:
