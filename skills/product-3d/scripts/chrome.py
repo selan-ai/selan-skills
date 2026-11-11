@@ -24,8 +24,13 @@ CHROMES = [
     "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
 ]
 
-# Playwright's own Chromium, as the Reactor image and many developer machines have it.
+# Playwright's own browsers, as the Reactor image and many developer machines have them. Its headless shell comes
+# first: on the Reactor image the full Chromium hangs headless and never answers, while the shell draws the same pages.
+SHELL = "chromium_headless_shell-*/*/chrome-headless-shell"
 PLAYWRIGHT = [
+    f"~/.cache/ms-playwright/{SHELL}",
+    f"~/Library/Caches/ms-playwright/{SHELL}",
+    f"/ms-playwright/{SHELL}",
     "~/.cache/ms-playwright/chromium-*/chrome-linux*/chrome",
     "~/Library/Caches/ms-playwright/chromium-*/chrome-mac*/Chromium.app/Contents/MacOS/Chromium",
     "~/Library/Caches/ms-playwright/chromium-*/chrome-mac*/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
@@ -54,7 +59,7 @@ def find() -> str | None:
         if found:
             return found
     browsers = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
-    patterns = PLAYWRIGHT + ([f"{browsers}/chromium-*/chrome-*/chrome"] if browsers else [])
+    patterns = ([f"{browsers}/{SHELL}"] if browsers else []) + PLAYWRIGHT + ([f"{browsers}/chromium-*/chrome-*/chrome"] if browsers else [])
     for pattern in patterns:
         matches = sorted(glob.glob(os.path.expanduser(pattern)), reverse=True)
         if matches:
